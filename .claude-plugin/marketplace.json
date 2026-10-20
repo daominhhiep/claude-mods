@@ -1,0 +1,11 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "daominhhiep" },
+  "plugins": [
+    {
+      "name": "session-cockpit",
+      "source": "./plugins/session-cockpit",
+      "description": "Context, cost and cache clock above the prompt, budget guard, PR/CI status, live subagent tree, destructive-command guard, diff replay and activity log"
+    }
+  ]
+}
