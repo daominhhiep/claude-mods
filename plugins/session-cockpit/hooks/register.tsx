@@ -328,7 +328,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     await refreshAgents($)
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'cockpit' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
