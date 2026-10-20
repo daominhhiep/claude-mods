@@ -76,6 +76,18 @@ test('the guard asks the person before a destructive command', async ($, on) => 
   expect(safe.decision).toBe('allow')
 })
 
+test('the guard leaves a command the person\'s rules refuse refused', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('tool.check', () => ({ decision: 'deny', reason: 'Bash(rm:*) is denied' }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+
+  const refused = await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })
+  expect(refused.decision).toBe('deny')
+})
+
 test('the activity tab lists tool calls, on every surface', async ($, on) => {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'cockpit' } }))
