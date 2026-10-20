@@ -2,7 +2,7 @@
 
 A Claude Code mod that keeps context, cost, cache time, pull request status and running subagents in sight above the prompt, adds a `/cockpit` pane, asks before destructive commands and enforces an optional session budget.
 
-See the [repository README](../../README.md) for what the band and the pane show, install steps and options.
+See the [repository README](../../README.md) for what the band and the pane show, install steps and options, and the [privacy policy](PRIVACY.md) for how it handles data.
 
 ## Programs it starts, and why
 

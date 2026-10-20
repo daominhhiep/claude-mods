@@ -77,6 +77,10 @@ claude plugin validate plugins/session-cockpit
 claude plugin test plugins/session-cockpit
 ```
 
+## Privacy
+
+Session Cockpit has no server and sends nothing to its author. See its [privacy policy](plugins/session-cockpit/PRIVACY.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
