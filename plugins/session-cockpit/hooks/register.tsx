@@ -434,8 +434,9 @@ export const register: Register = (on, options) => {
     const blast = detectBlast(command)
     if (blast === null) return next(e)
 
+    // A call the person's rules already refuse stays refused: pass it on.
     const verdict = await next(e)
-    if (verdict.decision === 'deny') return verdict
+    if (verdict.decision === 'deny') return next(e)
 
     const preview = blast.preview ? await runPreview($, blast.preview) : []
     if (e.tool_use_id !== undefined) {
