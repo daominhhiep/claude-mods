@@ -1,7 +1,14 @@
 {
   "name": "session-cockpit",
+  "displayName": "Session Cockpit",
   "version": "0.1.0",
   "description": "Side pane and prompt band: context, cost and cache clock, budget guard, PR/CI status, live subagent tree, destructive-command guard, diff replay, activity log",
+  "author": {
+    "name": "daominhhiep",
+    "url": "https://github.com/daominhhiep"
+  },
+  "homepage": "https://github.com/daominhhiep/claude-mods/tree/main/plugins/session-cockpit",
+  "repository": "https://github.com/daominhhiep/claude-mods",
   "types": "./types/index.d.ts",
   "userConfig": {
     "budgetUsd": {
@@ -20,5 +27,6 @@
       ],
       "default": "5m"
     }
-  }
+  },
+  "license": "MIT"
 }

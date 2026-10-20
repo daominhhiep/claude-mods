@@ -76,3 +76,7 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 claude plugin validate plugins/session-cockpit
 claude plugin test plugins/session-cockpit
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
