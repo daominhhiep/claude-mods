@@ -493,3 +493,47 @@ export function painter(themeId: string | null | undefined): (color: string) => 
   const theme = THEMES.find(t => t.id === themeId) ?? THEMES[0]!
   return color => theme.colors[color] ?? color
 }
+
+/** A bouncing block inside `width` cells, for work of unknown length. */
+export function sweep(frame: number, width: number): string {
+  const w = Math.max(3, width)
+  const span = (w - 1) * 2
+  const step = ((frame % span) + span) % span
+  const at = step < w ? step : span - step
+  return Array.from({ length: w }, (_, i) => (i === at ? '▰' : '▱')).join('')
+}
+
+/**
+ * Splits `text` into runs for a shimmer: the letter under the moving light,
+ * its neighbours, and the rest. `null` frame draws it plain.
+ */
+export function shimmer(text: string, frame: number | null): { text: string; glow: 0 | 1 | 2 }[] {
+  if (frame === null) return [{ text, glow: 0 }]
+  const n = text.length
+  const at = ((frame % (n + 6)) + n + 6) % (n + 6) - 3
+  const runs: { text: string; glow: 0 | 1 | 2 }[] = []
+  for (let i = 0; i < n; i++) {
+    const d = Math.abs(i - at)
+    const glow: 0 | 1 | 2 = d === 0 ? 2 : d === 1 ? 1 : 0
+    const last = runs[runs.length - 1]
+    if (last !== undefined && last.glow === glow) last.text += text[i]
+    else runs.push({ text: text[i]!, glow })
+  }
+  return runs
+}
+
+export const TWEEN_MS = 1500
+export const TYPE_MS = 35
+
+/** The percent to draw `since` ms after a reading moved from `from` to `to`, eased out. */
+export function tween(from: number, to: number, since: number): number {
+  const t = Math.max(0, Math.min(1, since / TWEEN_MS))
+  const eased = 1 - (1 - t) ** 3
+  return Math.round(from + (to - from) * eased)
+}
+
+/** The part of `text` typed out `since` ms after it appeared, with a cursor while typing. */
+export function typed(text: string, since: number): string {
+  const n = Math.floor(Math.max(0, since) / TYPE_MS)
+  return n >= text.length ? text : `${text.slice(0, n)}▌`
+}

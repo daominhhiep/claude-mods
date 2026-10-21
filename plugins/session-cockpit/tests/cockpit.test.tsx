@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { daysLeft, detectBlast, humanPrompt, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -518,4 +518,17 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     await band.unmount()
     await ui.unmount()
   }
+})
+
+test('motion helpers ease, type and sweep', async () => {
+  expect(tween(40, 80, 0)).toBe(40)
+  expect(tween(40, 80, 750)).toBe(75)
+  expect(tween(40, 80, 5000)).toBe(80)
+  expect(typed('abc', 0)).toBe('▌')
+  expect(typed('abc', 35)).toBe('a▌')
+  expect(typed('abc', 500)).toBe('abc')
+  expect(sweep(0, 4)).toBe('▰▱▱▱')
+  expect(sweep(4, 4)).toBe('▱▱▰▱')
+  expect(shimmer('abcde', 5).map(r => r.glow)).toEqual([0, 1, 2, 1, 0])
+  expect(shimmer('abc', null)).toEqual([{ text: 'abc', glow: 0 }])
 })

@@ -23,7 +23,13 @@ import {
   humanPrompt,
   painter,
   THEMES,
+  shimmer,
   spin,
+  sweep,
+  tween,
+  TWEEN_MS,
+  TYPE_MS,
+  typed,
   tidySummary,
   cachedShare,
   clockLeft,
@@ -113,6 +119,10 @@ async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
   if (last !== undefined && last.durationMs === null) return true
   if ((await read($, agents)).some(a => a.endedAt === null)) return true
   if ((await read($, blasts)).some(b => b.outcome === 'waiting')) return true
+  const now = await $.clock.now()
+  const lastReading = (await read($, weather)).at(-1)
+  if (lastReading !== undefined && now - lastReading.at < TWEEN_MS) return true
+  if (last !== undefined && now - last.startedAt < last.text.length * TYPE_MS + 500) return true
   const warmAt = await read($, cacheAt)
   if (warmAt === null) return false
   const left = warmAt + cacheMs - (await $.clock.now())
@@ -361,9 +371,12 @@ export const register: Register = (on, options) => {
       void refreshPr($)
     })
     // Drives the spinners and the cache pulse, only while something moves.
+    let beats = 0
     $.clock.every(FRAME_MS, () => {
+      beats += 1
       void (async () => {
-        if (await isBusy($, cacheMs)) await update($, frame, n => n + 1)
+        // Four frames a second while something moves; one a second at rest.
+        if ((await isBusy($, cacheMs)) || beats % 4 === 0) await update($, frame, n => n + 1)
       })()
     })
 
@@ -718,8 +731,17 @@ export const register: Register = (on, options) => {
       usage.context.tokens === undefined
         ? undefined
         : contextPercent(usage.context.tokens, usage.context.window, limitAt)
-    const level = pct === undefined ? null : levelOf(pct)
-    const mini = pct === undefined ? null : gradientBar(pct, 12)
+    const readings = await read($, weather)
+    const lastR = readings[readings.length - 1]
+    const prevR = readings[readings.length - 2]
+    const pctShown =
+      pct === undefined
+        ? undefined
+        : lastR !== undefined && prevR !== undefined && now - lastR.at < TWEEN_MS
+          ? tween(prevR.percent, lastR.percent, now - lastR.at)
+          : pct
+    const mini = pctShown === undefined ? null : gradientBar(pctShown, 12)
+    const level = pctShown === undefined ? null : levelOf(pctShown)
     const f = await read($, frame)
     const warmAt = await read($, cacheAt)
     const left = warmAt === null ? null : warmAt + cacheMs - now
@@ -765,7 +787,7 @@ export const register: Register = (on, options) => {
             'ctx',
             <Text>
               <Text color={paint(level.color)} bold>
-                {level.icon} {pct}%
+                {level.icon} {pctShown ?? pct}%
               </Text>{' '}
               {mini.runs.map(r => (
                 <Text color={paint(r.color)}>{r.text}</Text>
@@ -818,8 +840,11 @@ export const register: Register = (on, options) => {
         ? null
         : chip(
             'run',
-            <Text color={paint('warning')} bold>
-              {spin(f)} {duration(now - last.startedAt)}
+            <Text>
+              <Text color={paint('warning')} bold>
+                {spin(f)} {duration(now - last.startedAt)}
+              </Text>{' '}
+              <Text color={paint('warning')}>{sweep(f, 6)}</Text>
             </Text>,
             'running',
           ),
@@ -950,12 +975,16 @@ export const register: Register = (on, options) => {
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold>
             <Text color={paint('claude')}>◆ </Text>
-            <Text color={paint('claude')}>Session</Text> <Text>Cockpit</Text>
+            {shimmer('Session Cockpit', busy ? f : null).map(r => (
+              <Text color={paint(r.glow === 2 ? 'warning' : r.glow === 1 ? 'suggestion' : 'claude')}>
+                {r.text}
+              </Text>
+            ))}
           </Text>
           {busy ? (
             <Text color={paint('warning')}>{spin(f)} working</Text>
           ) : (
-            <Text color={paint('success')}>● idle</Text>
+            <Text color={paint(f % 2 === 0 ? 'success' : 'inactive')}>● idle</Text>
           )}
         </Box>
         <Box flexDirection="row" columnGap={1} flexWrap="wrap" marginTop={1}>
@@ -990,8 +1019,10 @@ export const register: Register = (on, options) => {
       if (last === undefined) {
         gauge = empty('☁', 'No reading yet.', "It appears after Claude's first reply.")
       } else {
-        const level = levelOf(last.percent)
-        const g = gradientBar(last.percent, barWidth)
+        const before = history[history.length - 2]
+        const shown = before === undefined ? last.percent : tween(before.percent, last.percent, now - last.at)
+        const level = levelOf(shown)
+        const g = gradientBar(shown, barWidth)
         gauge = (
           <Box flexDirection="column">
             <Box flexDirection="row" justifyContent="space-between">
@@ -999,13 +1030,23 @@ export const register: Register = (on, options) => {
                 {level.icon} {level.name}
               </Text>
               <Text color={paint(level.color)} bold tabular>
-                {last.percent}%
+                {shown}%
               </Text>
             </Box>
             <Text>
-              {g.runs.map(r => (
-                <Text color={paint(r.color)}>{r.text}</Text>
-              ))}
+              {(() => {
+                // While Claude works a light runs along the filled part.
+                const filled = g.runs.reduce((n, r) => n + r.text.length, 0)
+                const at = busy && filled > 0 ? f % (filled + 4) : -1
+                let i = 0
+                return g.runs.flatMap(r =>
+                  Array.from(r.text).map(ch => {
+                    const here = i++
+                    const lit = here === at
+                    return lit ? <Text color={paint('text')}>{ch}</Text> : <Text color={paint(r.color)}>{ch}</Text>
+                  }),
+                )
+              })()}
               <Text color={paint('inactive')}>{g.rest}</Text>
             </Text>
             <Text color={paint('inactive')}>{scale(barWidth)}</Text>
@@ -1067,7 +1108,7 @@ export const register: Register = (on, options) => {
                   ) : humanPrompt(p.text).startsWith('⚙') || humanPrompt(p.text).startsWith('✉') ? (
                     <Text color={paint('inactive')}>{humanPrompt(p.text)}</Text>
                   ) : (
-                    humanPrompt(p.text)
+                    typed(humanPrompt(p.text), now - p.startedAt)
                   )}
                 </Text>
                 {p.agents.map(ag => (
@@ -1437,7 +1478,7 @@ export const register: Register = (on, options) => {
                 <Text bold={isOn} color={isOn ? tint('claude') : undefined}>
                   {`  ${t.name}`}
                 </Text>
-                <Text color={tint('inactive')}>{`  ${t.note}`}</Text>
+                {isNarrow ? null : <Text color={tint('inactive')}>{`  ${t.note}`}</Text>}
               </Button>
             )
           })}
