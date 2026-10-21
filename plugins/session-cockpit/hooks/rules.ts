@@ -354,3 +354,142 @@ export function contextPercent(tokens: number, window: number, compactAt: number
   const limit = compactAt !== null && compactAt > 0 ? compactAt : window
   return limit > 0 ? Math.round((tokens / limit) * 100) : 0
 }
+
+/** A prompt as a person would read it: engine envelopes named, tags dropped. */
+export function humanPrompt(text: string): string {
+  const t = text.trim()
+  if (t === '') return ''
+  if (t.startsWith('<task-notification')) return '⚙ Background task update'
+  if (t.startsWith('<agent-message')) return '✉ Message from an agent'
+  if (t.startsWith('<teammate-message')) return '✉ Message from a teammate'
+  return t
+    .replace(/^❯\s*/, '')
+    .replace(/<[^>]{1,80}>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** A command or path shortened: the project folder dropped, the home folder as ~. */
+export function tidySummary(summary: string, cwd: string): string {
+  let s = summary
+  if (cwd !== '') {
+    const root = cwd.replace(/\/$/, '')
+    s = s.replace(new RegExp(`^cd\\s+["']?${escapeRe(root)}["']?\\s*(&&|;)\\s*`), '')
+    s = s.split(`${root}/`).join('').split(root).join('.')
+  }
+  return s.replace(/\/(?:Users|home)\/[^/\s"']+/g, '~')
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Whole days left before a transcript last written at `lastActive` is cleaned up. */
+export function daysLeft(lastActive: number, now: number, keepDays: number): number {
+  return keepDays - Math.floor((now - lastActive) / 86_400_000)
+}
+
+export function ago(ms: number): string {
+  const m = Math.floor(ms / 60_000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+export function baseName(path: string): string {
+  const parts = path.replace(/\/$/, '').split('/')
+  return parts[parts.length - 1] ?? path
+}
+
+export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+export function spin(frame: number): string {
+  return SPINNER[((frame % SPINNER.length) + SPINNER.length) % SPINNER.length]!
+}
+
+/**
+ * A bar `width` cells wide filled to `percent`, split into runs of one color
+ * each: every cell takes the color of the level its position stands for, so
+ * the fill reads as a gradient from calm to hot.
+ */
+export function gradientBar(
+  percent: number,
+  width: number,
+): { runs: { text: string; color: string }[]; rest: string } {
+  const w = Math.max(4, width)
+  const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * w)
+  const runs: { text: string; color: string }[] = []
+  for (let i = 0; i < filled; i++) {
+    const color = levelOf(((i + 0.5) / w) * 100).color
+    const last = runs[runs.length - 1]
+    if (last !== undefined && last.color === color) last.text += '█'
+    else runs.push({ text: '█', color })
+  }
+  return { runs, rest: '░'.repeat(w - filled) }
+}
+
+export type Theme = { id: string; name: string; note: string; colors: Record<string, string> }
+
+// Each theme maps the Claude Code theme keys the mod paints with to colors of
+// its own; "claude" keeps the keys, so the mod follows the person's theme.
+export const THEMES: Theme[] = [
+  { id: 'claude', name: 'Claude', note: 'Follows your Claude Code theme', colors: {} },
+  {
+    id: 'ocean',
+    name: 'Ocean',
+    note: 'Cool blues and teals',
+    colors: {
+      claude: '#4fc3f7', success: '#4dd0e1', warning: '#ffd54f', error: '#ff8a80',
+      suggestion: '#80deea', permission: '#64b5f6', merged: '#b39ddb',
+      subtle: '#78909c', inactive: '#546e7a',
+    },
+  },
+  {
+    id: 'sunset',
+    name: 'Sunset',
+    note: 'Warm oranges and pinks',
+    colors: {
+      claude: '#ff7e5f', success: '#ffb36b', warning: '#ffd166', error: '#ff4e6a',
+      suggestion: '#f6a5c0', permission: '#c3aed6', merged: '#e0a3ff',
+      subtle: '#a8908c', inactive: '#6d5d5d',
+    },
+  },
+  {
+    id: 'neon',
+    name: 'Neon',
+    note: 'High-contrast synthwave',
+    colors: {
+      claude: '#ff2bd6', success: '#39ff14', warning: '#fff01f', error: '#ff073a',
+      suggestion: '#00f0ff', permission: '#7df9ff', merged: '#bc13fe',
+      subtle: '#8a8aa3', inactive: '#5a5a73',
+    },
+  },
+  {
+    id: 'forest',
+    name: 'Forest',
+    note: 'Calm greens and earth tones',
+    colors: {
+      claude: '#8bc34a', success: '#66bb6a', warning: '#e6c229', error: '#e57373',
+      suggestion: '#a5d6a7', permission: '#80cbc4', merged: '#ce93d8',
+      subtle: '#8d9a87', inactive: '#5f6b5a',
+    },
+  },
+  {
+    id: 'mono',
+    name: 'Mono',
+    note: 'Greys only, for recording or focus',
+    colors: {
+      claude: '#e0e0e0', success: '#bdbdbd', warning: '#f5f5f5', error: '#ffffff',
+      suggestion: '#9e9e9e', permission: '#9e9e9e', merged: '#cfcfcf',
+      subtle: '#7a7a7a', inactive: '#5c5c5c',
+    },
+  },
+]
+
+/** The color a theme paints a theme key with; unknown keys and raw colors pass through. */
+export function painter(themeId: string | null | undefined): (color: string) => string {
+  const theme = THEMES.find(t => t.id === themeId) ?? THEMES[0]!
+  return color => theme.colors[color] ?? color
+}

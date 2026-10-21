@@ -1,6 +1,6 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
-import { detectBlast, levelOf, lineDiff, parseBudget, prRefFrom, rollup } from '../hooks/rules'
+import { daysLeft, detectBlast, humanPrompt, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -213,7 +213,7 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
     const texts = (await band.findAll({ type: 'Text' })).map(x => x.text)
-    expect(texts).toContain('⚡ 80% ████████   context')
+    expect(texts).toContain('⚡ 80% ██████████░░ context')
     expect(texts).toContain('$1.42 spent')
     expect(texts).toContain('◷ 5:00 ▰▰▰▰▰ cache')
     expect(texts).toContain('11m 35s session · 1m 35s working')
@@ -351,7 +351,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
     expect((await band.find({ type: 'Text', text: /#101/ }))?.text).toBe('#101 Add an approval gate')
     expect((await band.find({ type: 'Text', text: /failing/ }))?.text).toBe('✓ 1  ✗ 1 · lint failing')
     expect(await band.find({ type: 'Text', text: /approved/ })).toBeDefined()
-    expect((await band.find({ type: 'Text', text: /agent/ }))?.text).toBe('◌ 1 agent · code-reviewer')
+    expect((await band.find({ type: 'Text', text: /agent/ }))?.text).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1 agent · code-reviewer$/)
     await band.unmount()
 
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -434,6 +434,88 @@ test('context is measured against the auto-compact threshold', async ($, on) => 
     expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain(
       '250.0k of 270.0k before auto-compact · window 1M',
     )
+    await ui.unmount()
+  }
+})
+
+test('prompts and commands read the way a person would', async () => {
+  expect(humanPrompt('<task-notification> <task-id>bs624</task-id>')).toBe('⚙ Background task update')
+  expect(humanPrompt('<agent-message from="aaf6">[Subagent] done')).toBe('✉ Message from an agent')
+  expect(humanPrompt('❯ Job xong chưa?')).toBe('Job xong chưa?')
+  expect(tidySummary('cd /Users/me/Desktop/app && go test ./...', '/Users/me/Desktop/app')).toBe('go test ./...')
+  expect(tidySummary('/Users/me/Desktop/app/services/x.go', '/Users/me/Desktop/app')).toBe('services/x.go')
+  expect(tidySummary('cat /Users/me/.claude/notes.md', '/Users/me/Desktop/app')).toBe('cat ~/.claude/notes.md')
+  expect(daysLeft(0, 25 * 86_400_000, 30)).toBe(5)
+})
+
+test('pinning keeps a named session one press away', async ($, on) => {
+  mock.store(on)
+  const filled: string[] = []
+  const renamed: string[] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 3.2 } },
+  }))
+  on('command.run', (_, e) => {
+    if (e.command === 'rename') renamed.push(e.args)
+    return { text: '' }
+  })
+  on('prompt.fill', (_, e) => {
+    filled.push(e.text)
+    return { isFilled: true } as never
+  })
+  await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
+
+  const pinned = (await $.command.run({ command: 'pin', args: 'finance export' } as never)) as { text: string }
+  expect(pinned.text).toContain('Pinned "finance export"')
+  // Either the built-in /rename ran, or the reply says to run it.
+  expect(renamed.length === 1 || pinned.text.includes('/rename finance export')).toBe(true)
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'tab-sessions' })
+    expect((await ui.find({ type: 'Text', text: /finance export/ }))?.text).toBe('★ finance export')
+    expect(await ui.find({ type: 'Text', text: /this session/ })).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /app ·/ }))?.text).toBe('app · just now · $3.20')
+    await ui.unmount()
+  }
+
+  const unpinned = (await $.command.run({ command: 'unpin' } as never)) as { text: string }
+  expect(unpinned.text).toContain('Unpinned')
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  expect(await ui.find({ type: 'Text', text: /No pinned sessions/ })).toBeDefined()
+  await ui.press({ key: 'pin-here' })
+  expect(filled).toEqual(['/pin '])
+  await ui.unmount()
+})
+
+test('a theme repaints the band and the pane, and is kept for next time', async ($, on) => {
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 1 } },
+  }))
+  await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'tab-theme' })
+    expect(await ui.find({ type: 'Text', text: /Neon/ })).toBeDefined()
+    await ui.press({ key: 'theme-neon' })
+    const band = await $.ui.mount({ ...BAND, surface } as never)
+    expect(JSON.stringify(await band.drawn())).toContain('#ff2bd6')
+    await band.unmount()
     await ui.unmount()
   }
 })

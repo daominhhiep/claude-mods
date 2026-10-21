@@ -1,10 +1,10 @@
 # Session Cockpit privacy policy
 
-Effective 21 October 2026. Applies to the Session Cockpit mod for Claude Code, version 0.1.3 and later, published at https://github.com/daominhhiep/claude-mods.
+Effective 21 October 2026 (updated for version 0.2.0). Applies to the Session Cockpit mod for Claude Code, version 0.1.3 and later, published at https://github.com/daominhhiep/claude-mods.
 
 ## Summary
 
-Session Cockpit runs entirely inside your own Claude Code session, on your own machine. It has no server, no account and no analytics. Its author receives nothing from it. What it reads stays in the session's memory and is gone when the session ends. The only data that leaves your machine goes, with your own credentials, to GitHub (a read of a pull request) and to your Kubernetes cluster (a dry run of a delete Claude is about to make), as described below.
+Session Cockpit runs entirely inside your own Claude Code session, on your own machine. It has no server, no account and no analytics. Its author receives nothing from it. What it reads stays in the session's memory and is gone when the session ends, except the sessions you pin and the theme you choose, which it keeps in a file on your machine (below). The only data that leaves your machine goes, with your own credentials, to GitHub (a read of a pull request) and to your Kubernetes cluster (a dry run of a delete Claude is about to make), as described below.
 
 ## What the mod reads
 
@@ -21,7 +21,14 @@ Any of these can contain personal data that happens to be in your prompts, files
 
 ## What the mod stores
 
-Nothing outside the session. Everything above is kept in the session's own in-memory state only, and is discarded when the session ends or is cleared. The mod writes no files, keeps nothing across sessions and uses no cookies or identifiers.
+Everything above is kept in the session's own in-memory state, and is discarded when the session ends or is cleared, with two exceptions you choose:
+
+- **Pinned sessions.** When you pin a session (`/pin`, or the button in the Sessions tab), the mod keeps, for each pinned session: its session id, the name you gave it, the first 120 characters of its first prompt as a title, its project folder path, when you pinned it, when it was last active, and its cost so far. Unpinning removes the entry.
+- **Theme.** The id of the theme you pick in the Theme tab.
+
+These are kept in the mod's own store, a JSON file Claude Code keeps for the plugin in your Claude Code configuration folder on your machine. Nothing in it is sent anywhere. Uninstalling the mod, or unpinning, removes what it holds. The mod writes no other files and uses no cookies or tracking identifiers.
+
+The session's own transcript is Claude Code's, not the mod's: pinning does not copy it or keep it longer. Claude Code still cleans transcripts up after `cleanupPeriodDays` (30 by default); the Sessions tab warns when a pinned session gets close.
 
 Your settings for the mod (`budgetUsd`, `cacheTtl`) are kept by Claude Code in your own settings, like any plugin option.
 
@@ -42,7 +49,7 @@ The mod never reads, copies or sends your credentials, API keys or tokens. `gh` 
 
 ## Retention
 
-The mod has no service and retains nothing. Data in the session's memory is discarded when the session ends.
+The mod has no service. Data in the session's memory is discarded when the session ends. Pinned-session entries and the theme stay in the local store until you unpin, change the theme or uninstall the mod.
 
 ## Children
 

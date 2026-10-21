@@ -9,12 +9,22 @@ import type {
   CallRecord,
   CockpitTab,
   DiffStep,
+  PinnedSession,
   PromptCost,
   WeatherReading,
 } from '../types'
 import {
   AGENT_DONE,
+  ago,
   bar,
+  baseName,
+  daysLeft,
+  gradientBar,
+  humanPrompt,
+  painter,
+  THEMES,
+  spin,
+  tidySummary,
   cachedShare,
   clockLeft,
   contextPercent,
@@ -54,6 +64,12 @@ const prRef = atom({ plugin: 'session-cockpit', key: 'prRef' } as const, null)
 const agents = atom({ plugin: 'session-cockpit', key: 'agents' } as const, [])
 const modelInfo = atom({ plugin: 'session-cockpit', key: 'modelInfo' } as const, null)
 const compactAt = atom({ plugin: 'session-cockpit', key: 'compactAt' } as const, null)
+const pins = atom({ plugin: 'session-cockpit', key: 'pins' } as const, [])
+const pinScope = atom({ plugin: 'session-cockpit', key: 'pinScope' } as const, 'project')
+const sessionId = atom({ plugin: 'session-cockpit', key: 'sessionId' } as const, null)
+const keepDays = atom({ plugin: 'session-cockpit', key: 'keepDays' } as const, 30)
+const frame = atom({ plugin: 'session-cockpit', key: 'frame' } as const, 0)
+const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude')
 
 const MAX_WEATHER = 60
 const MAX_BLASTS = 30
@@ -66,14 +82,42 @@ const BUDGET_WARN = 0.8
 const MAX_FILE_BYTES = 1_000_000
 const PREVIEW_LINES = 12
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
+const FRAME_MS = 250
+const PINS_KEY = 'pins'
+const THEME_KEY = 'theme'
+const WARN_DAYS = 7
 
-const TABS: { id: CockpitTab; label: string; hotkey: string }[] = [
-  { id: 'weather', label: 'Context', hotkey: '1' },
-  { id: 'agents', label: 'Agents', hotkey: '2' },
-  { id: 'blast', label: 'Guard', hotkey: '3' },
-  { id: 'replay', label: 'Changes', hotkey: '4' },
-  { id: 'log', label: 'Activity', hotkey: '5' },
+const TABS: { id: CockpitTab; label: string; short: string; hotkey: string }[] = [
+  { id: 'weather', label: 'Context', short: 'Context', hotkey: '1' },
+  { id: 'agents', label: 'Agents', short: 'Agents', hotkey: '2' },
+  { id: 'sessions', label: 'Sessions', short: 'Pins', hotkey: '3' },
+  { id: 'blast', label: 'Guard', short: 'Guard', hotkey: '4' },
+  { id: 'replay', label: 'Changes', short: 'Diff', hotkey: '5' },
+  { id: 'log', label: 'Activity', short: 'Log', hotkey: '6' },
+  { id: 'theme', label: 'Theme', short: 'Theme', hotkey: '7' },
 ]
+
+async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void> {
+  await update($, pins, () => list)
+  try {
+    await $.store.set(PINS_KEY, list)
+  } catch {
+    // The pane still shows the list; it is saved again on the next change.
+  }
+}
+
+/** True while something moves: a prompt or agent runs, a guard waits, the cache is about to go cold. */
+async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
+  const list = await read($, costs)
+  const last = list[list.length - 1]
+  if (last !== undefined && last.durationMs === null) return true
+  if ((await read($, agents)).some(a => a.endedAt === null)) return true
+  if ((await read($, blasts)).some(b => b.outcome === 'waiting')) return true
+  const warmAt = await read($, cacheAt)
+  if (warmAt === null) return false
+  const left = warmAt + cacheMs - (await $.clock.now())
+  return left > 0 && left <= 60_000
+}
 
 function clockTime(ms: number): string {
   const d = new Date(ms)
@@ -281,6 +325,27 @@ export const register: Register = (on, options) => {
       description: 'Show or set this session\'s spending limit, e.g. /budget 20 or /budget off',
       argumentHint: '[amount|off]',
     })
+    await $.command.register({
+      name: 'pin',
+      description: 'Pin this session, and name it, e.g. /pin finance export',
+      argumentHint: '[name]',
+    })
+    await $.command.register({
+      name: 'unpin',
+      description: 'Unpin this session',
+    })
+    try {
+      const id = await $.session.id()
+      await update($, sessionId, () => id)
+      const saved = await $.store.get(PINS_KEY)
+      if (Array.isArray(saved)) await update($, pins, () => saved as PinnedSession[])
+      const savedTheme = await $.store.get(THEME_KEY)
+      if (typeof savedTheme === 'string') await update($, theme, () => savedTheme)
+      const days = await $.settings.read({ key: 'cleanupPeriodDays' })
+      if (typeof days === 'number' && days > 0) await update($, keepDays, () => days)
+    } catch {
+      // Pins load on the next session start.
+    }
     void $.ui.open({ id: PANE, title: TITLE })
     try {
       const model = await $.session.model()
@@ -295,8 +360,59 @@ export const register: Register = (on, options) => {
     $.clock.every(PR_POLL_MS, () => {
       void refreshPr($)
     })
+    // Drives the spinners and the cache pulse, only while something moves.
+    $.clock.every(FRAME_MS, () => {
+      void (async () => {
+        if (await isBusy($, cacheMs)) await update($, frame, n => n + 1)
+      })()
+    })
 
     return next(e)
+  })
+
+  on('command.run', { command: 'pin' }, async ($, e) => {
+    const id = await read($, sessionId)
+    if (id === null) {
+      return { text: 'Could not read this session\'s id, so it was not pinned. Try again after the next reply.' }
+    }
+    const name = e.args.trim() === '' ? null : e.args.trim().slice(0, 80)
+    const list = await read($, pins)
+    const first = (await read($, costs)).find(p => humanPrompt(p.text) !== '')
+    const now = await $.clock.now()
+    const usd = (await $.session.usage()).cost?.usd ?? null
+    const old = list.find(p => p.id === id)
+    const entry: PinnedSession = {
+      id,
+      name: name ?? old?.name ?? null,
+      title: old?.title ?? (first === undefined ? baseName(cwd) : humanPrompt(first.text).slice(0, 120)),
+      cwd,
+      pinnedAt: old?.pinnedAt ?? now,
+      lastActive: now,
+      usd,
+    }
+    await savePins($, [entry, ...list.filter(p => p.id !== id)])
+    let renamed = true
+    if (name !== null) {
+      try {
+        await $.command.run({ command: 'rename', args: name })
+      } catch {
+        renamed = false
+      }
+    }
+    const label = entry.name ?? entry.title
+    return {
+      text:
+        `Pinned "${label}". Open it later from /cockpit (Sessions), or with /resume ${name !== null && renamed ? name : id}.` +
+        (name !== null && !renamed ? ` Run /rename ${name} so /resume shows the name too.` : ''),
+    }
+  })
+
+  on('command.run', { command: 'unpin' }, async $ => {
+    const id = await read($, sessionId)
+    const list = await read($, pins)
+    if (id === null || !list.some(p => p.id === id)) return { text: 'This session is not pinned.' }
+    await savePins($, list.filter(p => p.id !== id))
+    return { text: 'Unpinned this session. Its transcript is kept as usual.' }
   })
 
   on('command.run', { command: 'budget' }, async ($, e) => {
@@ -437,6 +553,15 @@ export const register: Register = (on, options) => {
 
     const usage = await $.session.usage({ breakdown: 'summary' })
     await recordWeather($, usage)
+    const here = await read($, sessionId)
+    const pinned = await read($, pins)
+    if (here !== null && pinned.some(p => p.id === here)) {
+      const at = await $.clock.now()
+      await savePins(
+        $,
+        pinned.map(p => (p.id === here ? { ...p, lastActive: at, usd: usage.cost?.usd ?? p.usd } : p)),
+      )
+    }
     const usdNow = usage.cost?.usd ?? null
     await update($, costs, list =>
       list.map(p =>
@@ -506,7 +631,7 @@ export const register: Register = (on, options) => {
       id: e.tool_use_id,
       tool,
       summary:
-        cwd === '' ? summarize(tool, fields) : summarize(tool, fields).split(`${cwd.replace(/\/$/, '')}/`).join(''),
+        tidySummary(summarize(tool, fields), cwd),
       startedAt,
       ms: null,
       status: 'running',
@@ -594,12 +719,14 @@ export const register: Register = (on, options) => {
         ? undefined
         : contextPercent(usage.context.tokens, usage.context.window, limitAt)
     const level = pct === undefined ? null : levelOf(pct)
-    const mini = pct === undefined ? null : bar(pct, 10)
+    const mini = pct === undefined ? null : gradientBar(pct, 12)
+    const f = await read($, frame)
     const warmAt = await read($, cacheAt)
     const left = warmAt === null ? null : warmAt + cacheMs - now
     const status = await read($, pr)
     const live = (await read($, agents)).filter(a => a.endedAt === null)
     const { Box, Text } = $.ui.resolve(e)
+    const paint = painter(await read($, theme))
 
     const budgetColor =
       limit > 0 && usd !== undefined
@@ -615,14 +742,21 @@ export const register: Register = (on, options) => {
       <Box key={key} flexDirection="row" flexShrink={0}>
         <Text wrap="truncate-end">
           {value}
-          {label === undefined ? null : <Text color="inactive"> {label}</Text>}
+          {label === undefined ? null : <Text color={paint('inactive')}> {label}</Text>}
         </Text>
       </Box>
     )
 
     const cacheShare = left === null ? 0 : Math.max(0, Math.min(1, left / cacheMs))
     const cacheCells = Math.round(cacheShare * 5)
-    const cacheColor = left === null ? 'inactive' : left <= 0 ? 'inactive' : left <= 60_000 ? 'warning' : 'success'
+    const cacheColor =
+      left === null || left <= 0
+        ? 'inactive'
+        : left <= 60_000
+          ? f % 2 === 0
+            ? 'warning'
+            : 'error'
+          : 'success'
 
     const firstChips = [
       level === null || mini === null || pct === undefined
@@ -630,11 +764,13 @@ export const register: Register = (on, options) => {
         : chip(
             'ctx',
             <Text>
-              <Text color={level.color} bold>
+              <Text color={paint(level.color)} bold>
                 {level.icon} {pct}%
               </Text>{' '}
-              <Text color={level.color}>{mini.fill}</Text>
-              <Text backgroundColor="subtle">{mini.rest}</Text>
+              {mini.runs.map(r => (
+                <Text color={paint(r.color)}>{r.text}</Text>
+              ))}
+              <Text color={paint('inactive')}>{mini.rest}</Text>
             </Text>,
             limitAt === null ? 'context' : 'of compact limit',
           ),
@@ -642,9 +778,9 @@ export const register: Register = (on, options) => {
         ? null
         : chip(
             'cost',
-            <Text color={budgetColor} bold>
+            <Text color={paint(budgetColor)} bold>
               {money(usd)}
-              {limit > 0 ? <Text color="subtle" bold={false}>{` / $${limit.toFixed(0)}`}</Text> : null}
+              {limit > 0 ? <Text color={paint('subtle')} bold={false}>{` / $${limit.toFixed(0)}`}</Text> : null}
             </Text>,
             'spent',
           ),
@@ -653,16 +789,16 @@ export const register: Register = (on, options) => {
         : chip(
             'cache',
             isRunning ? (
-              <Text color="success">◷ warm</Text>
+              <Text color={paint('success')}>◷ warm</Text>
             ) : left <= 0 ? (
-              <Text color="inactive">◷ cold</Text>
+              <Text color={paint('inactive')}>◷ cold</Text>
             ) : (
               <Text>
-                <Text color={cacheColor} bold>
+                <Text color={paint(cacheColor)} bold>
                   ◷ {clockLeft(left)}
                 </Text>{' '}
-                <Text color={cacheColor}>{'▰'.repeat(cacheCells)}</Text>
-                <Text color="inactive">{'▱'.repeat(5 - cacheCells)}</Text>
+                <Text color={paint(cacheColor)}>{'▰'.repeat(cacheCells)}</Text>
+                <Text color={paint('inactive')}>{'▱'.repeat(5 - cacheCells)}</Text>
               </Text>
             ),
             'cache',
@@ -671,7 +807,7 @@ export const register: Register = (on, options) => {
         'time',
         <Text>
           <Text tabular>{duration(now - usage.startedAt)}</Text>
-          <Text color="inactive"> session · </Text>
+          <Text color={paint('inactive')}> session · </Text>
           <Text tabular>{duration(working)}</Text>
         </Text>,
         'working',
@@ -680,7 +816,13 @@ export const register: Register = (on, options) => {
       // running prompt shows here, so the band stays two rows.
       last === undefined || !isRunning
         ? null
-        : chip('run', <Text color="warning" bold>● {duration(now - last.startedAt)}</Text>, 'running'),
+        : chip(
+            'run',
+            <Text color={paint('warning')} bold>
+              {spin(f)} {duration(now - last.startedAt)}
+            </Text>,
+            'running',
+          ),
     ].filter(x => x !== null)
 
     const hasPr = status !== null && status.number !== null
@@ -691,11 +833,11 @@ export const register: Register = (on, options) => {
         : chip(
             'model',
             <Text>
-              <Text color="claude">◆</Text> <Text bold>{info.model.replace(/^claude-/, '')}</Text>
+              <Text color={paint('claude')}>◆</Text> <Text bold>{info.model.replace(/^claude-/, '')}</Text>
               {info.effort === null ? null : (
                 <Text>
-                  <Text color="inactive"> · </Text>
-                  <Text color="suggestion">{info.effort}</Text>
+                  <Text color={paint('inactive')}> · </Text>
+                  <Text color={paint('suggestion')}>{info.effort}</Text>
                 </Text>
               )}
             </Text>,
@@ -707,7 +849,7 @@ export const register: Register = (on, options) => {
             'pr',
             <Text>
               <Text bold>#{status.number}</Text>{' '}
-              <Text color="subtle">
+              <Text color={paint('subtle')}>
                 {status.title.length > 28 ? `${status.title.slice(0, 27)}…` : status.title}
               </Text>
             </Text>,
@@ -718,9 +860,9 @@ export const register: Register = (on, options) => {
             'checks',
             <Text>
               {[
-                status.passed > 0 ? <Text color="success">✓ {status.passed}</Text> : null,
-                status.failed > 0 ? <Text color="error">✗ {status.failed}</Text> : null,
-                status.pending > 0 ? <Text color="warning">◌ {status.pending}</Text> : null,
+                status.passed > 0 ? <Text color={paint('success')}>✓ {status.passed}</Text> : null,
+                status.failed > 0 ? <Text color={paint('error')}>✗ {status.failed}</Text> : null,
+                status.pending > 0 ? <Text color={paint('warning')}>◌ {status.pending}</Text> : null,
               ]
                 .filter(x => x !== null)
                 .flatMap((x, i) => (i === 0 ? [x] : ['  ', x]))}
@@ -736,20 +878,20 @@ export const register: Register = (on, options) => {
       !hasPr || status === null
         ? null
         : status.state === 'MERGED'
-          ? chip('rev', <Text color="merged">● merged</Text>)
+          ? chip('rev', <Text color={paint('merged')}>● merged</Text>)
           : status.review === 'APPROVED'
-            ? chip('rev', <Text color="success">● approved</Text>)
+            ? chip('rev', <Text color={paint('success')}>● approved</Text>)
             : status.review === 'CHANGES_REQUESTED'
-              ? chip('rev', <Text color="error">● changes requested</Text>)
+              ? chip('rev', <Text color={paint('error')}>● changes requested</Text>)
               : status.review === 'REVIEW_REQUIRED'
-                ? chip('rev', <Text color="subtle">○ waiting for review</Text>)
+                ? chip('rev', <Text color={paint('subtle')}>○ waiting for review</Text>)
                 : null,
       live.length === 0
         ? null
         : chip(
             'agents',
-            <Text color="claude" bold>
-              ◌ {live.length}
+            <Text color={paint('claude')} bold>
+              {spin(f)} {live.length}
             </Text>,
             `${live.length === 1 ? 'agent' : 'agents'} · ${live[0]?.label ?? ''}${
               live.length > 1 ? ` +${live.length - 1}` : ''
@@ -761,7 +903,7 @@ export const register: Register = (on, options) => {
 
     // A rounded frame sets the band apart from the transcript above it.
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={2} paddingY={1} rowGap={1} marginTop={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor={paint('subtle')} paddingX={2} paddingY={1} rowGap={1} marginTop={1}>
         <Box flexDirection="row" columnGap={4} flexWrap="wrap">
           {firstChips}
         </Box>
@@ -777,39 +919,56 @@ export const register: Register = (on, options) => {
   // ── Pane ───────────────────────────────────────────────────────────
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Code } = $.ui.resolve(e)
+    const paint = painter(await read($, theme))
     const current = await read($, tab)
     const width = Math.max(24, e.props.bodyColumns)
     const room = Math.max(4, e.props.scroll.bodyRows - 4)
 
-    const rule = <Text color="subtle">{'─'.repeat(width)}</Text>
+    const rule = <Text color={paint('subtle')}>{'─'.repeat(width)}</Text>
 
     const heading = (title: string, meta?: string) => (
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold>{title.toUpperCase()}</Text>
-        {meta === undefined ? null : <Text color="subtle">{meta}</Text>}
+        {meta === undefined ? null : <Text color={paint('subtle')}>{meta}</Text>}
       </Box>
     )
 
     const empty = (icon: string, line: string, hint?: string) => (
       <Box flexDirection="column" paddingY={1}>
-        <Text color="subtle">
+        <Text color={paint('subtle')}>
           {icon} {line}
         </Text>
-        {hint === undefined ? null : <Text color="inactive">{hint}</Text>}
+        {hint === undefined ? null : <Text color={paint('inactive')}>{hint}</Text>}
       </Box>
     )
 
+    const isNarrow = width < 64
+    const f = await read($, frame)
+    const busy = (await read($, costs)).some(p => p.durationMs === null)
     const tabs = (
       <Box flexDirection="column">
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text bold>
+            <Text color={paint('claude')}>◆ </Text>
+            <Text color={paint('claude')}>Session</Text> <Text>Cockpit</Text>
+          </Text>
+          {busy ? (
+            <Text color={paint('warning')}>{spin(f)} working</Text>
+          ) : (
+            <Text color={paint('success')}>● idle</Text>
+          )}
+        </Box>
+        <Box flexDirection="row" columnGap={1} flexWrap="wrap" marginTop={1}>
           {TABS.map(t => (
-            <Button
-              key={`tab-${t.id}`}
-              label={t.label}
-              hotkey={t.hotkey}
-              variant={t.id === current ? 'primary' : 'secondary'}
-              onPress={() => update($, tab, () => t.id)}
-            />
+            <Button key={`tab-${t.id}`} plain onPress={() => update($, tab, () => t.id)}>
+              {t.id === current ? (
+                <Text backgroundColor={paint('claude')} color={paint('inverseText')} bold>
+                  {` ${isNarrow ? t.short : t.label} `}
+                </Text>
+              ) : (
+                <Text color={paint('subtle')}>{` ${isNarrow ? t.short : t.label} `}</Text>
+              )}
+            </Button>
           ))}
         </Box>
         {rule}
@@ -832,38 +991,40 @@ export const register: Register = (on, options) => {
         gauge = empty('☁', 'No reading yet.', "It appears after Claude's first reply.")
       } else {
         const level = levelOf(last.percent)
-        const b = bar(last.percent, barWidth)
+        const g = gradientBar(last.percent, barWidth)
         gauge = (
           <Box flexDirection="column">
             <Box flexDirection="row" justifyContent="space-between">
-              <Text color={level.color} bold>
+              <Text color={paint(level.color)} bold>
                 {level.icon} {level.name}
               </Text>
-              <Text color={level.color} bold tabular>
+              <Text color={paint(level.color)} bold tabular>
                 {last.percent}%
               </Text>
             </Box>
             <Text>
-              <Text color={level.color}>{b.fill}</Text>
-              <Text backgroundColor="subtle">{b.rest}</Text>
+              {g.runs.map(r => (
+                <Text color={paint(r.color)}>{r.text}</Text>
+              ))}
+              <Text color={paint('inactive')}>{g.rest}</Text>
             </Text>
-            <Text color="inactive">{scale(barWidth)}</Text>
+            <Text color={paint('inactive')}>{scale(barWidth)}</Text>
             <Text>
               <Text tabular>{compact(last.tokens)}</Text>
-              <Text color="subtle">
+              <Text color={paint('subtle')}>
                 {last.compactAt === null
                   ? ` of ${compact(last.window)} tokens`
                   : ` of ${compact(last.compactAt)} before auto-compact · window ${compact(last.window)}`}
               </Text>
-              {history.length < 2 ? null : (
-                <Text>
-                  <Text color="subtle">{'   trend '}</Text>
-                  <Text color={level.color}>
-                    {sparkline(history.slice(-Math.max(4, width - 30)).map(r => r.percent))}
-                  </Text>
-                </Text>
-              )}
             </Text>
+            {history.length < 2 ? null : (
+              <Text wrap="truncate-end">
+                <Text color={paint('subtle')}>trend </Text>
+                <Text color={paint(level.color)}>
+                  {sparkline(history.slice(-Math.max(4, width - 8)).map(r => r.percent))}
+                </Text>
+              </Text>
+            )}
           </Box>
         )
       }
@@ -878,33 +1039,41 @@ export const register: Register = (on, options) => {
             {prompts.map(p => (
               <Box key={p.id} flexDirection="column" marginTop={1}>
                 <Box flexDirection="row" gap={2}>
-                  <Text color="subtle" tabular>
+                  <Text color={paint('subtle')} tabular>
                     {clockTime(p.startedAt).slice(0, 5)}
                   </Text>
                   {p.durationMs === null ? (
-                    <Text color="warning">● {duration(now - p.startedAt)}</Text>
+                    <Text color={paint('warning')}>
+                      {spin(f)} {duration(now - p.startedAt)}
+                    </Text>
                   ) : (
                     <Text tabular>{duration(p.durationMs)}</Text>
                   )}
                   {p.usd === null ? null : (
-                    <Text color="claude" bold tabular>
+                    <Text color={paint('claude')} bold tabular>
                       {money(p.usd)}
                     </Text>
                   )}
                   {p.durationMs === null ? null : (
-                    <Text color="subtle" tabular>
+                    <Text color={paint('subtle')} tabular>
                       {compact(p.inputTokens)} in · {compact(p.outputTokens)} out
                     </Text>
                   )}
                 </Box>
                 <Text wrap="truncate-end">
-                  <Text color="subtle">{'└ '}</Text>
-                  {p.text === '' ? <Text color="inactive">(continued)</Text> : p.text}
+                  <Text color={paint('subtle')}>{'└ '}</Text>
+                  {humanPrompt(p.text) === '' ? (
+                    <Text color={paint('inactive')}>(continued)</Text>
+                  ) : humanPrompt(p.text).startsWith('⚙') || humanPrompt(p.text).startsWith('✉') ? (
+                    <Text color={paint('inactive')}>{humanPrompt(p.text)}</Text>
+                  ) : (
+                    humanPrompt(p.text)
+                  )}
                 </Text>
                 {p.agents.map(ag => (
-                  <Text color="subtle" wrap="truncate-end">
+                  <Text color={paint('subtle')} wrap="truncate-end">
                     {'    ↳ '}
-                    <Text color="suggestion">{ag.label}</Text> · {duration(ag.durationMs)} ·{' '}
+                    <Text color={paint('suggestion')}>{ag.label}</Text> · {duration(ag.durationMs)} ·{' '}
                     {compact(ag.inputTokens)} in · {compact(ag.outputTokens)} out
                   </Text>
                 ))}
@@ -930,7 +1099,7 @@ export const register: Register = (on, options) => {
       }
       const look = (a: AgentNode) =>
         a.endedAt === null
-          ? { icon: '◌', color: 'claude' }
+          ? { icon: spin(f), color: 'claude' }
           : a.status === 'completed'
             ? { icon: '✓', color: 'success' }
             : a.status === 'idle'
@@ -956,42 +1125,42 @@ export const register: Register = (on, options) => {
                 {heading('Agents', `${running} running · ${list.length} in all`)}
                 <Box flexDirection="column">
                   <Text bold>
-                    <Text color="claude">◆</Text> Main conversation
+                    <Text color={paint('claude')}>◆</Text> Main conversation
                   </Text>
                   {rows.map(({ a, prefix, childPrefix }) => (
                     <Box key={a.id} flexDirection="column">
                       <Text wrap="truncate-end">
-                        <Text color="subtle">{prefix}</Text>
-                        <Text color={look(a).color}>{look(a).icon} </Text>
+                        <Text color={paint('subtle')}>{prefix}</Text>
+                        <Text color={paint(look(a).color)}>{look(a).icon} </Text>
                         <Text bold={a.endedAt === null}>{a.label}</Text>
-                        <Text color="subtle">
+                        <Text color={paint('subtle')}>
                           {' '}
                           {duration((a.endedAt ?? now) - a.startedAt)} · {a.tools}{' '}
                           {a.tools === 1 ? 'tool' : 'tools'}
                         </Text>
                       </Text>
-                      <Text color="subtle" wrap="truncate-end">
+                      <Text color={paint('subtle')} wrap="truncate-end">
                         {childPrefix + '  '}
                         {a.description}
                       </Text>
                       {a.uncached + a.cacheRead + a.cacheWrite + a.output === 0 ? null : (
                         <Text wrap="truncate-end">
-                          <Text color="subtle">{childPrefix + '  '}</Text>
+                          <Text color={paint('subtle')}>{childPrefix + '  '}</Text>
                           <Text tabular>{compact(a.uncached + a.cacheRead + a.cacheWrite)}</Text>
-                          <Text color="subtle"> in · </Text>
+                          <Text color={paint('subtle')}> in · </Text>
                           <Text tabular>{compact(a.output)}</Text>
-                          <Text color="subtle"> out</Text>
+                          <Text color={paint('subtle')}> out</Text>
                           {cachedShare(a) === null ? null : (
                             <Text>
-                              <Text color="subtle"> · </Text>
+                              <Text color={paint('subtle')}> · </Text>
                               <Text
-                                color={
+                                color={paint(
                                   (cachedShare(a) ?? 0) >= 70
                                     ? 'success'
                                     : (cachedShare(a) ?? 0) >= 40
                                       ? 'warning'
                                       : 'error'
-                                }
+                                )}
                               >
                                 {cachedShare(a)}% cached
                               </Text>
@@ -1000,8 +1169,8 @@ export const register: Register = (on, options) => {
                         </Text>
                       )}
                       {a.endedAt !== null || a.tool === null ? null : (
-                        <Text color="claude" wrap="truncate-end">
-                          <Text color="subtle">{childPrefix + '  '}</Text>↳ {a.tool}
+                        <Text color={paint('claude')} wrap="truncate-end">
+                          <Text color={paint('subtle')}>{childPrefix + '  '}</Text>↳ {a.tool}
                         </Text>
                       )}
                     </Box>
@@ -1009,6 +1178,115 @@ export const register: Register = (on, options) => {
                 </Box>
               </Box>
             )
+    } else if (current === 'sessions') {
+      await read($, tick)
+      const now = await $.clock.now()
+      const here = await read($, sessionId)
+      const scope = await read($, pinScope)
+      const keep = await read($, keepDays)
+      const all = await read($, pins)
+      const list = (scope === 'project' ? all.filter(p => p.cwd === cwd) : all).sort(
+        (a, b) => b.lastActive - a.lastActive,
+      )
+      const isPinned = here !== null && all.some(p => p.id === here)
+      const otherCount = all.filter(p => p.cwd !== cwd).length
+      body = (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+            <Button
+              key="pin-here"
+              label={isPinned ? '★ Unpin this session' : '☆ Pin this session'}
+              variant={isPinned ? 'secondary' : 'primary'}
+              onPress={async () => {
+                if (here === null) return
+                if (isPinned) {
+                  await savePins($, (await read($, pins)).filter(p => p.id !== here))
+                  $.ui.toast('Unpinned this session.')
+                  return
+                }
+                await $.prompt.fill({ text: '/pin ', mode: 'replace' })
+                $.ui.toast('Type a name after /pin (optional), then press Enter.')
+              }}
+            />
+            <Button
+              key="pin-scope"
+              label={scope === 'project' ? `All projects${otherCount > 0 ? ` (+${otherCount})` : ''}` : 'This project'}
+              onPress={() => update($, pinScope, s => (s === 'project' ? 'all' : 'project'))}
+            />
+          </Box>
+          {heading(
+            scope === 'project' ? `Pinned · ${baseName(cwd)}` : 'Pinned · all projects',
+            `${list.length} ${list.length === 1 ? 'session' : 'sessions'}`,
+          )}
+          {list.length === 0 ? (
+            empty(
+              '☆',
+              'No pinned sessions here.',
+              'Pin this one with /pin <name>. Pinned sessions stay one press away.',
+            )
+          ) : (
+            <Box flexDirection="column" gap={1}>
+              {list.map(p => {
+                const left = daysLeft(p.lastActive, now, keep)
+                const isHere = p.id === here
+                return (
+                  <Box
+                    key={`pin-${p.id}`}
+                    flexDirection="column"
+                    borderStyle="round"
+                    borderColor={paint(isHere ? 'claude' : left <= 2 ? 'error' : left <= WARN_DAYS ? 'warning' : 'subtle')}
+                    paddingX={1}
+                  >
+                    <Box flexDirection="row" justifyContent="space-between">
+                      <Text bold wrap="truncate-end">
+                        <Text color={paint('claude')}>★ </Text>
+                        {p.name ?? p.title}
+                      </Text>
+                      {isHere ? <Text color={paint('claude')}>● this session</Text> : null}
+                    </Box>
+                    {p.name === null ? null : (
+                      <Text color={paint('subtle')} wrap="truncate-end">
+                        {p.title}
+                      </Text>
+                    )}
+                    <Text color={paint('inactive')} wrap="truncate-end">
+                      {baseName(p.cwd)} · {ago(now - p.lastActive)}
+                      {p.usd === null ? '' : ` · ${money(p.usd)}`}
+                    </Text>
+                    {left > WARN_DAYS ? null : (
+                      <Text color={paint(left <= 2 ? 'error' : 'warning')} wrap="truncate-end">
+                        {left <= 0
+                          ? '⚠ May already be cleaned up. Raise cleanupPeriodDays or /export next time.'
+                          : `⚠ Cleaned up in ${left} ${left === 1 ? 'day' : 'days'}. Open it to keep it, or /export it.`}
+                      </Text>
+                    )}
+                    <Box flexDirection="row" columnGap={1} marginTop={1}>
+                      {isHere ? null : (
+                        <Button
+                          key={`open-${p.id}`}
+                          label="Open"
+                          variant="primary"
+                          onPress={async () => {
+                            await $.prompt.fill({ text: `/resume ${p.id}`, mode: 'replace' })
+                            $.ui.toast('Press Enter to open that session.')
+                          }}
+                        />
+                      )}
+                      <Button
+                        key={`unpin-${p.id}`}
+                        label="Unpin"
+                        onPress={async () => {
+                          await savePins($, (await read($, pins)).filter(x => x.id !== p.id))
+                        }}
+                      />
+                    </Box>
+                  </Box>
+                )
+              })}
+            </Box>
+          )}
+        </Box>
+      )
     } else if (current === 'blast') {
       const list = [...(await read($, blasts))].reverse()
       const look = {
@@ -1032,26 +1310,26 @@ export const register: Register = (on, options) => {
                     key={b.id}
                     flexDirection="column"
                     borderStyle="round"
-                    borderColor={look[b.outcome].color}
+                    borderColor={paint(look[b.outcome].color)}
                     paddingX={1}
                   >
                     <Box flexDirection="row" justifyContent="space-between">
-                      <Text color={look[b.outcome].color} bold>
+                      <Text color={paint(look[b.outcome].color)} bold>
                         {look[b.outcome].icon} {look[b.outcome].label}
                       </Text>
-                      <Text color="subtle" tabular>
+                      <Text color={paint('subtle')} tabular>
                         {clockTime(b.at)}
                       </Text>
                     </Box>
                     <Text bold>{b.kind}</Text>
                     <Text mono wrap="truncate-end">
-                      <Text color="claude">$ </Text>
+                      <Text color={paint('claude')}>$ </Text>
                       {b.command}
                     </Text>
                     {b.preview.length === 0 ? null : (
                       <Box flexDirection="column" marginTop={1}>
                         {b.preview.map(line => (
-                          <Text color="subtle" mono wrap="truncate-end">
+                          <Text color={paint('subtle')} mono wrap="truncate-end">
                             {line}
                           </Text>
                         ))}
@@ -1094,26 +1372,26 @@ export const register: Register = (on, options) => {
                   onPress={() => update($, step, () => list.length - 1)}
                 />
               </Box>
-              <Text color="subtle" tabular>
+              <Text color={paint('subtle')} tabular>
                 {at + 1} / {list.length}
               </Text>
             </Box>
             {list.length < 2 ? null : (
-              <Text color="claude">{strip(at, list.length, width)}</Text>
+              <Text color={paint('claude')}>{strip(at, list.length, width)}</Text>
             )}
             <Box flexDirection="column">
               <Text wrap="truncate-start">
-                <Text color="subtle">{dir}</Text>
+                <Text color={paint('subtle')}>{dir}</Text>
                 <Text bold>{file}</Text>
               </Text>
               <Text>
-                <Text color="success" bold>
+                <Text color={paint('success')} bold>
                   +{s.added}
                 </Text>{' '}
-                <Text color="error" bold>
+                <Text color={paint('error')} bold>
                   −{s.removed}
                 </Text>
-                <Text color="subtle">
+                <Text color={paint('subtle')}>
                   {'   '}
                   {s.tool} · {clockTime(s.at)}
                 </Text>
@@ -1128,6 +1406,46 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
+    } else if (current === 'theme') {
+      const chosen = await read($, theme)
+      const swatch = ['claude', 'success', 'warning', 'error', 'suggestion', 'permission']
+      body = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Theme', 'saved for every session')}
+          {THEMES.map(t => {
+            const tint = painter(t.id)
+            const isOn = t.id === chosen
+            return (
+              <Button
+                key={`theme-${t.id}`}
+                plain
+                onPress={async () => {
+                  await update($, theme, () => t.id)
+                  try {
+                    await $.store.set(THEME_KEY, t.id)
+                  } catch {
+                    $.ui.toast('Theme applied for this session; it could not be saved for the next one.')
+                  }
+                }}
+              >
+                <Text color={tint(isOn ? 'claude' : 'subtle')} bold={isOn}>
+                  {isOn ? '◉ ' : '○ '}
+                </Text>
+                {swatch.map(k => (
+                  <Text color={tint(k)}>██</Text>
+                ))}
+                <Text bold={isOn} color={isOn ? tint('claude') : undefined}>
+                  {`  ${t.name}`}
+                </Text>
+                <Text color={tint('inactive')}>{`  ${t.note}`}</Text>
+              </Button>
+            )
+          })}
+          <Text color={paint('inactive')} wrap="wrap">
+            Fixed-color themes are tuned for dark terminals. Claude follows your own light or dark theme.
+          </Text>
+        </Box>
+      )
     } else {
       const list = await read($, calls)
       const shown = list.slice(-Math.max(3, room - 2))
@@ -1139,7 +1457,7 @@ export const register: Register = (on, options) => {
         error: { icon: '✗', color: 'error' },
         refused: { icon: '⊘', color: 'warning' },
       } as const
-      const toolWidth = Math.min(12, Math.max(4, ...shown.map(c => c.tool.length)))
+      const toolWidth = Math.min(isNarrow ? 8 : 12, Math.max(4, ...shown.map(c => c.tool.length)))
       body =
         shown.length === 0
           ? empty('◌', 'No activity yet.', 'Every tool Claude runs is listed here.')
@@ -1158,18 +1476,33 @@ export const register: Register = (on, options) => {
                 <Box flexDirection="column">
                   {shown.map(c => (
                     <Box key={c.id} flexDirection="row" gap={1}>
-                      <Text color={look[c.status].color}>{look[c.status].icon}</Text>
-                      <Text color="subtle" tabular>
-                        {clockTime(c.startedAt)}
-                      </Text>
-                      <Text bold={c.status !== 'ok'} color={c.status === 'ok' ? undefined : look[c.status].color}>
-                        {c.tool.slice(0, toolWidth).padEnd(toolWidth)}
-                      </Text>
-                      <Text color="inactive" tabular>
-                        {(c.ms === null || c.ms < 100 ? '' : `${(c.ms / 1000).toFixed(1)}s`).padStart(6)}
-                      </Text>
+                      <Box flexShrink={0}>
+                        <Text color={paint(look[c.status].color)}>
+                          {c.status === 'running' ? spin(f) : look[c.status].icon}
+                        </Text>
+                      </Box>
+                      <Box flexShrink={0}>
+                        <Text color={paint('inactive')} tabular>
+                          {isNarrow ? clockTime(c.startedAt).slice(0, 5) : clockTime(c.startedAt)}
+                        </Text>
+                      </Box>
+                      <Box flexShrink={0}>
+                        <Text bold={c.status !== 'ok'} color={paint(c.status === 'ok' ? 'text' : look[c.status].color)}>
+                          {c.tool.slice(0, toolWidth).padEnd(toolWidth)}
+                        </Text>
+                      </Box>
+                      <Box flexShrink={0}>
+                        <Text color={paint('inactive')} tabular>
+                          {(c.ms === null || c.ms < 1000
+                            ? ''
+                            : c.ms < 60_000
+                              ? `${Math.round(c.ms / 1000)}s`
+                              : duration(c.ms)
+                          ).padStart(isNarrow ? 4 : 6)}
+                        </Text>
+                      </Box>
                       <Box flexGrow={1} flexShrink={1}>
-                        <Text color="subtle" wrap="truncate-end">
+                        <Text color={paint('subtle')} wrap="truncate-end">
                           {c.summary}
                         </Text>
                       </Box>

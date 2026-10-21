@@ -27,9 +27,11 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 | --- | --- |
 | Context | Context gauge and trend; time, cost and tokens for each prompt and its subagents |
 | Agents | Live tree of subagents: status, duration, tool count, tokens in and out, share read from cache, the tool running now |
+| Sessions | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
 | Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Changes | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Activity | Every tool call: time, tool, duration, target, result |
+| Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono; kept for every session |
 
 **Guards**
 
@@ -70,6 +72,8 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 
 - `/cockpit` opens the pane.
 - `/budget [amount|off]` shows or sets this session's spending limit.
+- `/pin [name]` pins this session; with a name it also renames it, so `/resume <name>` finds it.
+- `/unpin` unpins this session.
 
 ### Develop
 
