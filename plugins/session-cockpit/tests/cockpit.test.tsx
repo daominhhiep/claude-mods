@@ -668,3 +668,29 @@ test('the pane and the band read the same live context mid-turn', async ($, on) 
   expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('83%')
   await band.unmount()
 })
+
+test('where no system notification can be raised, the note shows as a toast', async ($, on) => {
+  const toasts: string[] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 1 } },
+  }))
+  on('ui.notify', () => ({ value: { isSent: false, reason: 'no-surface' } }) as never)
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>✧ Heads up · VND totals are estimates from the system rate. 1: Learn more 0: Dismiss</Text>
+  })
+  await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as never)
+  await band.unmount()
+  await new Promise(r => setTimeout(r, 20))
+  expect(toasts).toEqual(['✦ Heads up · VND totals are estimates from the system rate.'])
+})

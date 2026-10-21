@@ -579,8 +579,12 @@ export function textOf(node: unknown): string {
 
 /** The headline of a You should know note in a drawn band, or null when there is none. */
 export function headsUp(text: string): string | null {
-  const at = text.indexOf('✦')
-  if (at < 0) return null
-  const line = text.slice(at + 1).replace(/\s+\d:\s.*$/, '').trim()
+  const mark = text.search(/[✦✧]|Heads up/)
+  if (mark < 0) return null
+  const line = text
+    .slice(mark)
+    .replace(/^[✦✧]\s*/, '')
+    .replace(/\s+\d:\s.*$/, '')
+    .trim()
   return line === '' ? null : line
 }

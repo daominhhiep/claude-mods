@@ -75,7 +75,7 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 | --- | --- | --- |
 | `budgetUsd` | `0` (off) | Refuse tool calls once the session costs this much |
 | `cacheTtl` | `5m` | Prompt cache lifetime the clock counts down: `5m` or `1h`, as your plan or settings use |
-| `notifyHeadsUp` | `true` | Raise a system notification when Claude Code's You should know mod shows a new note above the prompt |
+| `notifyHeadsUp` | `true` | Raise a system notification when Claude Code's You should know mod shows a new note above the prompt; a toast where no system notification can be raised (the desktop app) |
 | `transcriptStyle` | `cockpit` | `cockpit` redraws the spinner, your prompts and tool rows; `claude` leaves the transcript as Claude Code draws it |
 
 `/budget 20` sets a limit for the current session only, `/budget off` turns it off, `/budget` shows it.

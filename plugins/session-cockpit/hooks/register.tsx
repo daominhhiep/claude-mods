@@ -733,7 +733,20 @@ export const register: Register = (on, options) => {
     const note = headsUp(belowText)
     if (note !== null && note !== lastHeadsUp && notifyHeadsUp) {
       lastHeadsUp = note
-      void $.ui.notify(note, { title: 'You should know' }).catch(() => undefined)
+      // A system notification where Claude Code can raise one; a toast where it
+      // cannot (the desktop app answers no-surface) or the send failed.
+      void (async () => {
+        try {
+          const sent = await $.ui.notify(note, { title: 'You should know' })
+          // A bell alone shows no words: show them in a toast as well.
+          if (sent.isSent && sent.channel !== 'terminal_bell') return
+          // Notifications the person turned off stay off.
+          if (!sent.isSent && sent.reason === 'disabled') return
+        } catch {
+          // Falls through to the toast.
+        }
+        $.ui.toast(`✦ ${note}`)
+      })()
     } else if (note === null) {
       lastHeadsUp = null
     }
