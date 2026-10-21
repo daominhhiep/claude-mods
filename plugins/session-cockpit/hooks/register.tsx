@@ -1164,11 +1164,26 @@ export const register: Register = (on, options) => {
       const totalMs = all.reduce((s, p) => s + (p.durationMs ?? Math.max(0, now - p.startedAt)), 0)
 
       let gauge
-      if (last === undefined) {
+      // The live reading, the same one the band shows; the history only feeds
+      // the trend and the ease after a turn.
+      let live: { tokens?: number; window: number } = { window: last?.window ?? 0 }
+      try {
+        live = (await $.session.usage()).context
+      } catch {
+        // No live reading: the last turn's stands.
+      }
+      const limitAt = await read($, compactAt)
+      const liveTokens = live.tokens ?? last?.tokens
+      if (last === undefined && live.tokens === undefined) {
         gauge = empty('☁', 'No reading yet.', "It appears after Claude's first reply.")
       } else {
+        const tokensNow = liveTokens ?? 0
+        const livePct = contextPercent(tokensNow, live.window, limitAt)
         const before = history[history.length - 2]
-        const shown = before === undefined ? last.percent : tween(before.percent, last.percent, now - last.at)
+        const shown =
+          last !== undefined && before !== undefined && now - last.at < TWEEN_MS
+            ? tween(before.percent, last.percent, now - last.at)
+            : livePct
         const level = levelOf(shown)
         const g = gradientBar(shown, barWidth)
         gauge = (
@@ -1199,11 +1214,11 @@ export const register: Register = (on, options) => {
             </Text>
             <Text color={paint('inactive')}>{scale(barWidth)}</Text>
             <Text>
-              <Text tabular>{compact(last.tokens)}</Text>
+              <Text tabular>{compact(tokensNow)}</Text>
               <Text color={paint('subtle')}>
-                {last.compactAt === null
-                  ? ` of ${compact(last.window)} tokens`
-                  : ` of ${compact(last.compactAt)} before auto-compact · window ${compact(last.window)}`}
+                {limitAt === null
+                  ? ` of ${compact(live.window)} tokens`
+                  : ` of ${compact(limitAt)} before auto-compact · window ${compact(live.window)}`}
               </Text>
             </Text>
             {history.length < 2 ? null : (

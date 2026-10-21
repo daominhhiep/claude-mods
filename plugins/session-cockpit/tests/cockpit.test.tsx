@@ -628,3 +628,43 @@ test('a You should know note stays above the band and raises a notification', as
   }
   expect(notes).toEqual(['Heads up · The retry count was changed from 3 to 5.'])
 })
+
+test('the pane and the band read the same live context mid-turn', async ($, on) => {
+  let now = 1_700_000_000_000
+  let tokens = 153_100
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: 1_700_000_000_000,
+      context: {
+        tokens,
+        window: 1_000_000,
+        breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 267_000 } as never,
+      },
+      rateLimits: [],
+      cost: { usd: 1 },
+    },
+  }))
+  await $.session.start({ cwd: '/repo/app', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'one', turnId: 't1' })
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+
+  now += 600_000
+  tokens = 222_000
+  await $.turn.start({ text: 'two', turnId: 't2' })
+  now += 60_000
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^83%$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain('222.0k of 267.0k')
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
+  expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('83%')
+  await band.unmount()
+})
