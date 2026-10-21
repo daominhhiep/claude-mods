@@ -64,5 +64,8 @@ The mod hooks `tool.check` twice. Neither hook ever allows a call: each one only
 | `turn.start` | Notes when a prompt starts and the session cost at that moment | No |
 | `turn.complete` | Records the turn's time, cost and tokens, the context reading and the cache clock | No |
 | `tool.call` | Logs each call for the Activity tab, reads an edited file before and after for the Changes tab, looks for pull request links | No: every call runs as asked and its result is returned unchanged |
+| `ui.render` (`Spinner`) | In the terminal, draws the turn's spinner in the theme's colors with a shimmer, the turn's time and cost so far | Redraws the spinner only; a state message (such as a retry) keeps Claude Code's own |
+| `ui.render` (`UserMessage`) | Draws your own typed prompts with a "You" label, time, duration and cost; other messages and the expanded view (ctrl+o) are Claude Code's | Redraws those rows only; the text is unchanged |
+| `ui.render` (`ToolUse`) | Draws each tool call as one row: status, tool icon, name, a short summary, duration; the expanded view (ctrl+o) is Claude Code's | Redraws the row only; results and dialogs are Claude Code's |
 | `ui.render` (`AbovePrompt`) | Draws the band above the prompt | Draws its own band only |
 | `ui.render` (`Pane`, `session-cockpit`) | Draws the mod's own pane | Draws its own pane only |

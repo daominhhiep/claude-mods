@@ -31,6 +31,8 @@ import {
   TYPE_MS,
   typed,
   tidySummary,
+  toolIcon,
+  toolLabel,
   cachedShare,
   clockLeft,
   contextPercent,
@@ -940,6 +942,120 @@ export const register: Register = (on, options) => {
       </Box>
     )
   })
+
+  // ── The transcript: the spinner, your prompts, tool rows ───────────
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.message !== null) return next(e)
+    const paint = painter(await read($, theme))
+    const f = await read($, frame)
+    const now = await $.clock.now()
+    const last = (await read($, costs)).at(-1)
+    const running = last !== undefined && last.durationMs === null ? last : null
+    const usd = (await $.session.usage()).cost?.usd
+    const spent =
+      running !== null && running.usdAtStart !== null && usd !== undefined ? usd - running.usdAtStart : null
+    const { Text } = $.ui.resolve(e)
+    return (
+      <Text>
+        <Text color={paint('claude')}>{spin(f)} </Text>
+        {shimmer(e.props.word, f).map(r => (
+          <Text color={paint(r.glow === 2 ? 'warning' : r.glow === 1 ? 'suggestion' : 'claude')} bold={r.glow > 0}>
+            {r.text}
+          </Text>
+        ))}
+        <Text color={paint('claude')}>…</Text>
+        {running === null ? null : (
+          <Text color={paint('inactive')}>
+            {`  ${duration(now - running.startedAt)}`}
+            {spent === null ? '' : ` · ${money(spent)}`}
+            {`  ${sweep(f, 5)}`}
+          </Text>
+        )}
+      </Text>
+    )
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    if (e.props.origin.kind !== 'composer' || e.props.isExpanded) return next(e)
+    const text = e.props.text
+    if (text.trim() === '' || text.trim().startsWith('/')) return next(e)
+    const paint = painter(await read($, theme))
+    const key = text.replace(/\s+/g, ' ').trim().slice(0, 200)
+    const match = (await read($, costs)).find(p => p.text === key)
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text>
+          <Text color={paint('claude')} bold>
+            ▍ You
+          </Text>
+          {match === undefined ? null : (
+            <Text color={paint('inactive')}>
+              {`  ${clockTime(match.startedAt).slice(0, 5)}`}
+              {match.durationMs === null ? '' : ` · ${duration(match.durationMs)}`}
+              {match.usd === null ? '' : ` · ${money(match.usd)}`}
+            </Text>
+          )}
+        </Text>
+        <Box flexDirection="row">
+          <Box flexShrink={0}>
+            <Text color={paint('claude')}>▍ </Text>
+          </Box>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text>{text}</Text>
+          </Box>
+        </Box>
+      </Box>
+    )
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    if (e.props.isExpanded === true) return next(e)
+    const paint = painter(await read($, theme))
+    const f = await read($, frame)
+    const call = (await read($, calls)).find(c => c.id === e.requestId)
+    const input =
+      typeof e.props.input === 'object' && e.props.input !== null ? (e.props.input as Record<string, unknown>) : {}
+    const summary = tidySummary(summarize(e.props.tool, input), cwd)
+    const status = e.props.isRunning
+      ? { icon: spin(f), color: 'warning' }
+      : e.props.isInterrupted
+        ? { icon: '⊘', color: 'inactive' }
+        : e.props.isErrored
+          ? { icon: '✗', color: 'error' }
+          : { icon: '✓', color: 'success' }
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row" gap={1}>
+        <Box flexShrink={0}>
+          <Text color={paint(status.color)}>{status.icon}</Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Text color={paint('claude')}>{toolIcon(e.props.tool)}</Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Text bold color={paint(e.props.isErrored ? 'error' : 'text')}>
+            {toolLabel(e.props.tool)}
+          </Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text color={paint('subtle')} wrap="truncate-end">
+            {summary}
+          </Text>
+        </Box>
+        {call === undefined || call.ms === null || call.ms < 1000 ? null : (
+          <Box flexShrink={0}>
+            <Text color={paint('inactive')}>{duration(call.ms)}</Text>
+          </Box>
+        )}
+        {e.props.isInterrupted ? (
+          <Box flexShrink={0}>
+            <Text color={paint('inactive')}>Interrupted</Text>
+          </Box>
+        ) : null}
+      </Box>
+    )
+  }).catch(($, e, next) => next(e))
 
   // ── Pane ───────────────────────────────────────────────────────────
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

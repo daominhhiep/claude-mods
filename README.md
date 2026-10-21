@@ -21,6 +21,14 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 - **Pull request**: shown once the session pushes or touches a PR: checks passed, failed and pending, failing check names, review state.
 - **Agents**: how many subagents are running.
 
+**In the transcript**
+
+- The spinner shimmers in the theme's colors and shows the turn's time and cost so far.
+- Your prompts get a `▍ You` label with the time, how long the turn took and what it cost.
+- Each tool call is one tidy row: status, tool icon, name, a short summary (project folder dropped, home as `~`), duration.
+
+Press ctrl+o for Claude Code's own full view at any time.
+
 **Pane (`/cockpit`)**
 
 | Tab | What it shows |

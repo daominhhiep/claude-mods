@@ -537,3 +537,32 @@ export function typed(text: string, since: number): string {
   const n = Math.floor(Math.max(0, since) / TYPE_MS)
   return n >= text.length ? text : `${text.slice(0, n)}▌`
 }
+
+const TOOL_ICONS: Record<string, string> = {
+  Bash: '❯',
+  Read: '◧',
+  Edit: '✎',
+  MultiEdit: '✎',
+  Write: '✚',
+  NotebookEdit: '✎',
+  Grep: '⌕',
+  Glob: '⌕',
+  WebFetch: '⇣',
+  WebSearch: '⌕',
+  Agent: '◆',
+  Task: '◆',
+  TodoWrite: '☰',
+  AskUserQuestion: '?',
+}
+
+export function toolIcon(tool: string): string {
+  if (tool.startsWith('mcp__')) return '⧉'
+  return TOOL_ICONS[tool] ?? '•'
+}
+
+/** A tool's name as a person reads it: an MCP tool by its server and tool. */
+export function toolLabel(tool: string): string {
+  if (!tool.startsWith('mcp__')) return tool
+  const [, server, name] = tool.split('__')
+  return `${server ?? ''} · ${name ?? ''}`
+}

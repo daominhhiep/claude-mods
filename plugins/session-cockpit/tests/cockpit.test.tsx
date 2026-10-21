@@ -532,3 +532,51 @@ test('motion helpers ease, type and sweep', async () => {
   expect(shimmer('abcde', 5).map(r => r.glow)).toEqual([0, 1, 2, 1, 0])
   expect(shimmer('abc', null)).toEqual([{ text: 'abc', glow: 0 }])
 })
+
+test('the transcript draws themed prompts, tool rows and a living spinner', async ($, on) => {
+  let now = 1_700_000_000_000
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('tool.call', () => ({ result: {} }))
+  let usd = 1
+  on('session.usage', () => ({
+    value: { startedAt: now, context: { window: 200_000 }, rateLimits: [], cost: { usd } },
+  }))
+  await $.session.start({ cwd: '/repo/app', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'Add retry to the order puller', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'cd /repo/app && go test ./...' } as never)
+  now += 42_000
+  usd = 1.37
+
+  const spinner = await $.ui.mount({
+    plugin: 'session-cockpit', surface: 'terminal', component: 'Spinner', requestId: 'spin',
+    props: { word: 'Cooking', message: null, suffix: '…', mode: 'responding' },
+  } as never)
+  expect((await spinner.find({ type: 'Text', text: /Cooking/ }))?.text).toMatch(/Cooking…  42s · \$0\.37/)
+  await spinner.unmount()
+
+  const prompt = await $.ui.mount({
+    plugin: 'session-cockpit', surface: 'terminal', component: 'UserMessage', requestId: 'm1',
+    props: { text: 'Add retry to the order puller', origin: { kind: 'composer' }, isExpanded: false },
+  } as never)
+  expect((await prompt.find({ type: 'Text', text: /You/ }))?.text).toContain('▍ You')
+  expect(await prompt.find({ type: 'Text', text: /^Add retry to the order puller$/ })).toBeDefined()
+  await prompt.unmount()
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const row = await $.ui.mount({
+      plugin: 'session-cockpit', surface, component: 'ToolUse', requestId: 'x',
+      props: {
+        toolUseId: 'x', tool: 'Bash', input: { command: 'cd /repo/app && go test ./...' },
+        isRunning: false, isErrored: false, isInterrupted: false, isExpanded: false,
+      },
+    } as never)
+    expect(await row.find({ type: 'Text', text: /^go test \.\/\.\.\.$/ })).toBeDefined()
+    expect(await row.find({ type: 'Text', text: /^✓$/ })).toBeDefined()
+    await row.unmount()
+  }
+})
