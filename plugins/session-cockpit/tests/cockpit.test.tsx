@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -208,15 +208,18 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     plugin: 'session-cockpit',
     component: 'AbovePrompt',
     requestId: 'above-prompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 120, view: {} },
+    props: { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 120, view: {} },
   } as const
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
     const texts = (await band.findAll({ type: 'Text' })).map(x => x.text)
-    expect(texts).toContain('⚡ 80% ██████████░░ context')
-    expect(texts).toContain('$1.42 spent')
-    expect(texts).toContain('◷ 5:00 ▰▰▰▰▰ cache')
-    expect(texts).toContain('11m 35s session · 1m 35s working')
+    expect(texts).toContain(' ⚡ 80% ')
+    expect(texts.some(t => t.includes('█') && t.includes('░'))).toBe(true)
+    expect(texts.some(t => t.startsWith('╭─ ') && t.endsWith(' ─╮'))).toBe(true)
+    const row = texts.find(t => t.includes('spent')) ?? ''
+    expect(row).toContain(' $1.42  spent')
+    expect(row).toContain('◷ 5:00  ▰▰▰▰▰ cache')
+    expect(row).toContain('11m 35s session · 1m 35s working')
     expect(texts.some(x => x.includes('last prompt'))).toBe(false)
     await band.unmount()
 
@@ -235,7 +238,7 @@ const BAND = {
   plugin: 'session-cockpit',
   component: 'AbovePrompt',
   requestId: 'above-prompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 160, view: {} },
+  props: { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 160, view: {} },
 } as const
 
 function engine(on: Parameters<Parameters<typeof test>[1]>[1], state: { now: number; usd: number }) {
@@ -290,7 +293,7 @@ test('the budget guard refuses tool calls once the limit is spent', { options: {
   expect((await $.tool.check({ tool: 'Read', input: { file_path: '/repo/a' } })).decision).toBe('allow')
 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await band.find({ type: 'Text', text: /\/ \$10/ }))?.text).toBe('$5.20 / $10 spent')
+  expect((await band.find({ type: 'Text', text: /\/ \$10/ }))?.text).toContain('$5.20  / $10 spent')
   await band.unmount()
 })
 
@@ -347,11 +350,12 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
   state.now += 100_000
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
-    expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toBe('◷ 3:20 ▰▰▰▱▱ cache')
-    expect((await band.find({ type: 'Text', text: /#101/ }))?.text).toBe('#101 Add an approval gate')
-    expect((await band.find({ type: 'Text', text: /failing/ }))?.text).toBe('✓ 1  ✗ 1 · lint failing')
-    expect(await band.find({ type: 'Text', text: /approved/ })).toBeDefined()
-    expect((await band.find({ type: 'Text', text: /agent/ }))?.text).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1 agent · code-reviewer$/)
+    expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toContain('◷ 3:20  ▰▰▰▱▱ cache')
+    const second = (await band.find({ type: 'Text', text: /#101/ }))?.text ?? ''
+    expect(second).toContain('⑂ #101 Add an approval gate')
+    expect(second).toContain('✓ 1  ✗ 1 · lint failing')
+    expect(second).toContain('● approved')
+    expect(second).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1 agent · code-reviewer$/)
     await band.unmount()
 
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -364,7 +368,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
 
   state.now += 300_000
   const cold = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await cold.find({ type: 'Text', text: /cache/ }))?.text).toBe('◷ cold cache')
+  expect((await cold.find({ type: 'Text', text: /cache/ }))?.text).toContain('◷ cold  cache')
   await cold.unmount()
 })
 
@@ -384,7 +388,7 @@ test('the band shows the model and effort of the latest request', async ($, on) 
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
 
   const before = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await before.find({ type: 'Text', text: /opus/ }))?.text).toBe('◆ opus-5-5 model')
+  expect((await before.find({ type: 'Text', text: /opus/ }))?.text).toContain('◆ opus-5-5 model')
   await before.unmount()
 
   const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'xhigh', messageCount: 1 } as never)
@@ -527,6 +531,14 @@ test('motion helpers ease, type and sweep', async () => {
   expect(typed('abc', 0)).toBe('▌')
   expect(typed('abc', 35)).toBe('a▌')
   expect(typed('abc', 500)).toBe('abc')
+  // The gauge fills in eighths of a cell; the ring's light moves with the frame.
+  const g = smoothBar(50, 10)
+  expect(g.runs.map(r => r.text).join('') + g.rest).toBe('█████░░░░░')
+  expect(smoothBar(55, 10).runs.map(r => r.text).join('')).toBe('█████▌')
+  expect(ringGlow(0, 0, 40)).toBe(2)
+  expect(ringGlow(3, 1, 40)).toBe(2)
+  expect(ringGlow(20, 1, 40)).toBe(0)
+  expect(THEMES.some(t => t.id === 'cyberpunk' && t.colors.claude === '#fcee0a')).toBe(true)
   expect(sweep(0, 4)).toBe('▰▱▱▱')
   expect(sweep(4, 4)).toBe('▱▱▰▱')
   expect(shimmer('abcde', 5).map(r => r.glow)).toEqual([0, 1, 2, 1, 0])

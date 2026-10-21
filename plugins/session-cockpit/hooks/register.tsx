@@ -19,7 +19,6 @@ import {
   bar,
   baseName,
   daysLeft,
-  gradientBar,
   headsUp,
   humanPrompt,
   textOf,
@@ -49,6 +48,8 @@ import {
   lineDiff,
   money,
   relativeTo,
+  ringGlow,
+  smoothBar,
   scale,
   sparkline,
   strip,
@@ -776,7 +777,6 @@ export const register: Register = (on, options) => {
         : lastR !== undefined && prevR !== undefined && now - lastR.at < TWEEN_MS
           ? tween(prevR.percent, lastR.percent, now - lastR.at)
           : pct
-    const mini = pctShown === undefined ? null : gradientBar(pctShown, 12)
     const level = pctShown === undefined ? null : levelOf(pctShown)
     const f = await read($, frame)
     const warmAt = await read($, cacheAt)
@@ -795,15 +795,20 @@ export const register: Register = (on, options) => {
             : 'claude'
         : 'claude'
 
-    // One chip: a value in color, then a dim label.
+    // One chip: a value in color, then a dim label, inline in its row.
     const chip = (key: string, value: RenderChildren, label?: string) => (
-      <Box key={key} flexDirection="row" flexShrink={0}>
-        <Text wrap="truncate-end">
-          {value}
-          {label === undefined ? null : <Text color={paint('inactive')}> {label}</Text>}
-        </Text>
-      </Box>
+      <Text key={key}>
+        {value}
+        {label === undefined ? null : <Text color={paint('inactive')}> {label}</Text>}
+      </Text>
     )
+    // A value on a solid block of its color.
+    const pill = (color: string, text: string) => (
+      <Text backgroundColor={paint(color)} color={paint('inverseText')} bold>
+        {` ${text} `}
+      </Text>
+    )
+    const spaced = (items: RenderChildren[]) => items.flatMap((x, i) => (i === 0 ? [x] : ['   ', x]))
 
     const cacheShare = left === null ? 0 : Math.max(0, Math.min(1, left / cacheMs))
     const cacheCells = Math.round(cacheShare * 5)
@@ -817,28 +822,16 @@ export const register: Register = (on, options) => {
           : 'success'
 
     const firstChips = [
-      level === null || mini === null || pct === undefined
+      level === null || pct === undefined
         ? null
-        : chip(
-            'ctx',
-            <Text>
-              <Text color={paint(level.color)} bold>
-                {level.icon} {pctShown ?? pct}%
-              </Text>{' '}
-              {mini.runs.map(r => (
-                <Text color={paint(r.color)}>{r.text}</Text>
-              ))}
-              <Text color={paint('inactive')}>{mini.rest}</Text>
-            </Text>,
-            limitAt === null ? 'context' : 'of compact limit',
-          ),
+        : chip('ctx', pill(level.color, `${level.icon} ${pctShown ?? pct}%`), limitAt === null ? 'context' : 'of compact limit'),
       usd === undefined
         ? null
         : chip(
             'cost',
-            <Text color={paint(budgetColor)} bold>
-              {money(usd)}
-              {limit > 0 ? <Text color={paint('subtle')} bold={false}>{` / $${limit.toFixed(0)}`}</Text> : null}
+            <Text>
+              {pill(budgetColor, money(usd))}
+              {limit > 0 ? <Text color={paint('subtle')}>{` / $${limit.toFixed(0)}`}</Text> : null}
             </Text>,
             'spent',
           ),
@@ -847,14 +840,12 @@ export const register: Register = (on, options) => {
         : chip(
             'cache',
             isRunning ? (
-              <Text color={paint('success')}>◷ warm</Text>
+              pill('success', '◷ warm')
             ) : left <= 0 ? (
-              <Text color={paint('inactive')}>◷ cold</Text>
+              pill('inactive', '◷ cold')
             ) : (
               <Text>
-                <Text color={paint(cacheColor)} bold>
-                  ◷ {clockLeft(left)}
-                </Text>{' '}
+                {pill(cacheColor, `◷ ${clockLeft(left)}`)}{' '}
                 <Text color={paint(cacheColor)}>{'▰'.repeat(cacheCells)}</Text>
                 <Text color={paint('inactive')}>{'▱'.repeat(5 - cacheCells)}</Text>
               </Text>
@@ -864,26 +855,12 @@ export const register: Register = (on, options) => {
       chip(
         'time',
         <Text>
-          <Text tabular>{duration(now - usage.startedAt)}</Text>
+          <Text bold tabular>{duration(now - usage.startedAt)}</Text>
           <Text color={paint('inactive')}> session · </Text>
-          <Text tabular>{duration(working)}</Text>
+          <Text bold tabular>{duration(working)}</Text>
         </Text>,
         'working',
       ),
-      // The last prompt's own time and cost live in the Context tab; only a
-      // running prompt shows here, so the band stays two rows.
-      last === undefined || !isRunning
-        ? null
-        : chip(
-            'run',
-            <Text>
-              <Text color={paint('warning')} bold>
-                {spin(f)} {duration(now - last.startedAt)}
-              </Text>{' '}
-              <Text color={paint('warning')}>{sweep(f, 6)}</Text>
-            </Text>,
-            'running',
-          ),
     ].filter(x => x !== null)
 
     const hasPr = status !== null && status.number !== null
@@ -909,6 +886,7 @@ export const register: Register = (on, options) => {
         : chip(
             'pr',
             <Text>
+              <Text color={paint('claude')}>⑂ </Text>
               <Text bold>#{status.number}</Text>{' '}
               <Text color={paint('subtle')}>
                 {status.title.length > 28 ? `${status.title.slice(0, 27)}…` : status.title}
@@ -960,19 +938,108 @@ export const register: Register = (on, options) => {
           ),
     ].filter(x => x !== null)
 
-    const showSecond = secondChips.length > 0 && e.props.maxRows >= 2
+    // ── The frame, drawn by hand so its title sits on the border and a light
+    // runs round it (quick while Claude works, slow while idle).
+    const W = Math.max(40, e.props.bodyColumns)
+    const inner = W - 4
 
-    // A rounded frame sets the band apart from the transcript above it.
+    const rows: RenderChildren[] = [<Text wrap="truncate-end">{spaced(firstChips)}</Text>]
+    if (pctShown !== undefined && e.props.maxRows >= 5) {
+      const g = smoothBar(pctShown, inner)
+      const filled = g.runs.reduce((n, r) => n + Array.from(r.text).length, 0)
+      const at = isRunning && filled > 0 ? (f * 2) % (filled + 6) : -1
+      let i = 0
+      rows.push(
+        <Text wrap="truncate-end">
+          {g.runs.flatMap(r =>
+            Array.from(r.text).map(ch => {
+              const here = i++
+              const near = Math.abs(here - at)
+              return (
+                <Text color={paint(near === 0 ? 'text' : near === 1 ? 'warning' : r.color)}>{ch}</Text>
+              )
+            }),
+          )}
+          <Text color={paint('inactive')}>{g.rest}</Text>
+        </Text>,
+      )
+    }
+    if (secondChips.length > 0 && e.props.maxRows >= 4) {
+      rows.push(<Text wrap="truncate-end">{spaced(secondChips)}</Text>)
+    }
+    const R = rows.length
+    const P = 2 * W + 2 * R
+    const working2 = isRunning || e.props.isWorking
+    const edge = (index: number) => {
+      const g = ringGlow(index, f, P)
+      return working2
+        ? g === 2 ? 'text' : g === 1 ? 'claude' : 'subtle'
+        : g === 2 ? 'suggestion' : g === 1 ? 'subtle' : 'inactive'
+    }
+    type Cell = { ch: string; color: string; bold?: boolean }
+    const draw = (cells: Cell[]) => {
+      const out: RenderChildren[] = []
+      let run: Cell | null = null
+      for (const c of cells) {
+        if (run !== null && run.color === c.color && run.bold === c.bold) run.ch += c.ch
+        else {
+          if (run !== null) out.push(<Text color={paint(run.color)} bold={run.bold}>{run.ch}</Text>)
+          run = { ...c }
+        }
+      }
+      if (run !== null) out.push(<Text color={paint(run.color)} bold={run.bold}>{run.ch}</Text>)
+      return out
+    }
+
+    const title: Cell[] = [
+      { ch: '◆ ', color: 'claude', bold: true },
+      ...shimmer('COCKPIT', working2 ? f : null).map(r => ({
+        ch: r.text,
+        color: r.glow === 2 ? 'text' : r.glow === 1 ? 'warning' : 'claude',
+        bold: true,
+      })),
+    ]
+    const statusText =
+      last !== undefined && isRunning
+        ? `${spin(f)} running ${duration(now - last.startedAt)} ${sweep(f, 6)}`
+        : '● ready'
+    const statusCells: Cell[] = Array.from(statusText).map(ch => ({
+      ch,
+      color: isRunning ? 'warning' : 'success',
+      bold: isRunning,
+    }))
+    const head: Cell[] = [
+      ...Array.from('╭─ ').map(ch => ({ ch, color: '' })),
+      ...title,
+      { ch: ' ', color: '' },
+    ]
+    const tail: Cell[] = [{ ch: ' ', color: '' }, ...statusCells, ...Array.from(' ─╮').map(ch => ({ ch, color: '' }))]
+    const dashes = Math.max(1, W - head.length - tail.length)
+    const top = [...head, ...Array.from({ length: dashes }, () => ({ ch: '─', color: '' })), ...tail].map(
+      (c, col) => (c.color === '' ? { ...c, color: edge(col) } : c),
+    )
+    const bottom = Array.from({ length: W }, (_, col) => ({
+      ch: col === 0 ? '╰' : col === W - 1 ? '╯' : '─',
+      color: edge(W + R + (W - 1 - col)),
+    }))
+
     const frameBox = (
-      <Box flexDirection="column" borderStyle="round" borderColor={paint('subtle')} paddingX={2} paddingY={1} rowGap={1} marginTop={1}>
-        <Box flexDirection="row" columnGap={4} flexWrap="wrap">
-          {firstChips}
-        </Box>
-        {showSecond ? (
-          <Box flexDirection="row" columnGap={4} flexWrap="wrap">
-            {secondChips}
+      <Box flexDirection="column" marginTop={1}>
+        <Text wrap="truncate-end">{draw(top)}</Text>
+        {rows.map((row, r) => (
+          <Box key={`row-${r}`} flexDirection="row">
+            <Box flexShrink={0}>
+              <Text color={paint(edge(2 * W + R + (R - 1 - r)))}>{'│ '}</Text>
+            </Box>
+            <Box width={inner} flexShrink={0}>
+              {row}
+            </Box>
+            <Box flexShrink={0}>
+              <Text color={paint(edge(W + r))}>{' │'}</Text>
+            </Box>
           </Box>
-        ) : null}
+        ))}
+        <Text wrap="truncate-end">{draw(bottom)}</Text>
       </Box>
     )
     return belowText === '' ? (
@@ -1128,22 +1195,103 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    const isNarrow = width < 64
     const f = await read($, frame)
-    const busy = (await read($, costs)).some(p => p.durationMs === null)
+    const allCosts = await read($, costs)
+    const busy = allCosts.some(p => p.durationMs === null)
+    // Full labels when the row holds them, short ones when not: the tabs never wrap.
+    const tabWidth = (pick: 'label' | 'short') => TABS.reduce((n, t) => n + t[pick].length + 3, 0)
+    const isNarrow = tabWidth('label') > width
+
+    // Three cards across the top: context, cost, working time.
+    await read($, tick)
+    const nowHead = await $.clock.now()
+    let usageHead: SessionUsage | null = null
+    try {
+      usageHead = await $.session.usage()
+    } catch {
+      // No reading: the cards show dashes.
+    }
+    const historyHead = await read($, weather)
+    const limitHead = await read($, compactAt)
+    const pctHead =
+      usageHead?.context.tokens === undefined
+        ? historyHead.at(-1)?.percent
+        : contextPercent(usageHead.context.tokens, usageHead.context.window, limitHead)
+    const usdHead = usageHead?.cost?.usd
+    const workingHead = allCosts.reduce((s, p) => s + (p.durationMs ?? Math.max(0, nowHead - p.startedAt)), 0)
+    const done = allCosts.filter(p => p.usd !== null)
+    const topUsd = Math.max(0.0001, ...done.map(p => p.usd ?? 0))
+    const cardWidth = Math.max(12, Math.floor((width - 2) / 3))
+    const sparkRoom = Math.max(4, cardWidth - 4)
+    const card = (key: string, color: string, value: string, foot: RenderChildren) => (
+      <Box
+        key={key}
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={paint(color)}
+        paddingX={1}
+        width={cardWidth}
+        flexShrink={1}
+        minWidth={12}
+      >
+        <Text color={paint(color)} bold tabular wrap="truncate-end">
+          {value}
+        </Text>
+        <Text wrap="truncate-end">{foot}</Text>
+      </Box>
+    )
+    const levelHead = pctHead === undefined ? null : levelOf(pctHead)
+    const cards = (
+      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+        {card(
+          'card-ctx',
+          levelHead?.color ?? 'subtle',
+          pctHead === undefined ? '—' : `${levelHead?.icon ?? ''} ${pctHead}%`,
+          historyHead.length < 2 ? (
+            <Text color={paint('inactive')}>context</Text>
+          ) : (
+            <Text color={paint(levelHead?.color ?? 'subtle')}>
+              {sparkline(historyHead.slice(-sparkRoom).map(r => r.percent))}
+            </Text>
+          ),
+        )}
+        {card(
+          'card-cost',
+          'claude',
+          usdHead === undefined ? '—' : money(usdHead),
+          done.length < 2 ? (
+            <Text color={paint('inactive')}>spent</Text>
+          ) : (
+            <Text color={paint('claude')}>
+              {sparkline(done.slice(-sparkRoom).map(p => ((p.usd ?? 0) / topUsd) * 99))}
+            </Text>
+          ),
+        )}
+        {card(
+          'card-time',
+          busy ? 'warning' : 'success',
+          duration(workingHead),
+          <Text color={paint('inactive')}>
+            {busy ? <Text color={paint('warning')}>{spin(f)} </Text> : null}
+            working · {allCosts.length} {allCosts.length === 1 ? 'prompt' : 'prompts'}
+          </Text>,
+        )}
+      </Box>
+    )
+
     const tabs = (
       <Box flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold>
             <Text color={paint('claude')}>◆ </Text>
-            {shimmer('Session Cockpit', busy ? f : null).map(r => (
-              <Text color={paint(r.glow === 2 ? 'warning' : r.glow === 1 ? 'suggestion' : 'claude')}>
-                {r.text}
-              </Text>
+            {shimmer('SESSION COCKPIT', busy ? f : null).map(r => (
+              <Text color={paint(r.glow === 2 ? 'text' : r.glow === 1 ? 'warning' : 'claude')}>{r.text}</Text>
             ))}
           </Text>
           {busy ? (
-            <Text color={paint('warning')}>{spin(f)} working</Text>
+            <Text color={paint('warning')} bold>
+              {spin(f)} working {sweep(f, 4)}
+            </Text>
           ) : (
             <Text color={paint(f % 2 === 0 ? 'success' : 'inactive')}>● idle</Text>
           )}
@@ -1162,6 +1310,7 @@ export const register: Register = (on, options) => {
           ))}
         </Box>
         {rule}
+        {cards}
       </Box>
     )
 
@@ -1198,7 +1347,7 @@ export const register: Register = (on, options) => {
             ? tween(before.percent, last.percent, now - last.at)
             : livePct
         const level = levelOf(shown)
-        const g = gradientBar(shown, barWidth)
+        const g = smoothBar(shown, barWidth)
         gauge = (
           <Box flexDirection="column">
             <Box flexDirection="row" justifyContent="space-between">
@@ -1267,8 +1416,20 @@ export const register: Register = (on, options) => {
                     <Text tabular>{duration(p.durationMs)}</Text>
                   )}
                   {p.usd === null ? null : (
-                    <Text color={paint('claude')} bold tabular>
-                      {money(p.usd)}
+                    <Text>
+                      <Text color={paint('claude')} bold tabular>
+                        {money(p.usd)}
+                      </Text>{' '}
+                      {(() => {
+                        // Each prompt's cost against the dearest one so far.
+                        const b = bar((p.usd / topUsd) * 100, 8)
+                        return (
+                          <Text>
+                            <Text color={paint('claude')}>{b.fill}</Text>
+                            <Text color={paint('inactive')}>{b.rest.replace(/ /g, '·')}</Text>
+                          </Text>
+                        )
+                      })()}
                     </Text>
                   )}
                   {p.durationMs === null ? null : (

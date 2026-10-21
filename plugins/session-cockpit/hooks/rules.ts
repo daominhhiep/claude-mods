@@ -486,7 +486,52 @@ export const THEMES: Theme[] = [
       subtle: '#7a7a7a', inactive: '#5c5c5c',
     },
   },
+  {
+    id: 'cyberpunk',
+    name: 'Cyberpunk',
+    note: 'Acid yellow, cyan and hot red on black',
+    colors: {
+      claude: '#fcee0a', success: '#00ff9f', warning: '#02d7f2', error: '#ff003c',
+      suggestion: '#02d7f2', permission: '#b026ff', merged: '#b026ff',
+      subtle: '#7a7f9a', inactive: '#4a4e66', text: '#e8f6ff', inverseText: '#0a0a12',
+    },
+  },
 ]
+
+/**
+ * A level-colored bar filled to `percent` in eighths of a cell, as color runs,
+ * and the empty rest.
+ */
+export function smoothBar(
+  percent: number,
+  width: number,
+): { runs: { text: string; color: string }[]; rest: string } {
+  const w = Math.max(4, width)
+  const units = Math.round((Math.min(100, Math.max(0, percent)) / 100) * w * 8)
+  const full = Math.floor(units / 8)
+  const part = EIGHTHS[units % 8] ?? ''
+  const runs: { text: string; color: string }[] = []
+  const push = (ch: string, i: number) => {
+    const color = levelOf(((i + 0.5) / w) * 100).color
+    const last = runs[runs.length - 1]
+    if (last !== undefined && last.color === color) last.text += ch
+    else runs.push({ text: ch, color })
+  }
+  for (let i = 0; i < full; i++) push('█', i)
+  if (part !== '') push(part, full)
+  return { runs, rest: '░'.repeat(Math.max(0, w - full - (part === '' ? 0 : 1))) }
+}
+
+/**
+ * How bright cell `index` of a frame `perimeter` cells around is, with a light
+ * running round it at `frame`: 2 under the light, 1 in its tail, 0 elsewhere.
+ */
+export function ringGlow(index: number, frame: number, perimeter: number): 0 | 1 | 2 {
+  if (perimeter <= 0) return 0
+  const head = (frame * 3) % perimeter
+  const behind = (((head - index) % perimeter) + perimeter) % perimeter
+  return behind <= 1 ? 2 : behind <= 8 ? 1 : 0
+}
 
 /** The color a theme paints a theme key with; unknown keys and raw colors pass through. */
 export function painter(themeId: string | null | undefined): (color: string) => string {

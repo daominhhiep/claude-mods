@@ -9,9 +9,14 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 **Above the prompt (always on)**
 
 ```
-⚡ 81% ████████▏ context    $2.54 / $10 spent    ◷ 3:12 ▰▰▰▱▱ cache    47m session · 5m working
-◆ opus-5-5 · high effort    #101 Add an approval gate    ✓ 2  ✗ 1 · lint failing    ◌ 2 agents · Explore +1
+╭─ ◆ COCKPIT ───────────────────────────────────────────────── ⠋ running 1m 03s ▱▰▱▱▱▱ ─╮
+│  ⚡ 81%  of compact limit    $2.54  / $10 spent    ◷ 3:12  ▰▰▰▱▱ cache   47m session · 5m working │
+│ ████████████████████████████████████████████████████████████▌░░░░░░░░░░░░░░░░░░░░░ │
+│ ◆ opus-5-5 · high effort   ⑂ #101 Add an approval gate   ✓ 2  ✗ 1 · lint failing   ⠋ 2 agents │
+╰─────────────────────────────────────────────────────────────────────────────────────╯
 ```
+
+Values sit on solid colored pills, the context gauge spans the band in eighths of a cell with a light running along it while Claude works, and a light circles the frame (fast while working, slow while idle).
 
 - **Context**: how close the session is to auto-compact (or to the model's window when auto-compact is off), coloured by level (Clear, Cloudy, Showers, Storm, Compact soon).
 - **Cost**: what the session has spent, against your budget when you set one.
@@ -33,15 +38,17 @@ Tool output stays Claude Code's own. Set `transcriptStyle` to `claude` to leave 
 
 **Pane (`/cockpit`)**
 
+Three cards head every tab: context with its trend, cost with each prompt's share, and working time. The tabs stay on one row, with short names in a narrow pane.
+
 | Tab | What it shows |
 | --- | --- |
-| Context | Context gauge and trend; time, cost and tokens for each prompt and its subagents |
+| Context | Context gauge and trend; time, cost (with a bar against the dearest prompt) and tokens for each prompt and its subagents |
 | Agents | Live tree of subagents: status, duration, tool count, tokens in and out, share read from cache, the tool running now |
 | Sessions | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
 | Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Changes | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Activity | Every tool call: time, tool, duration, target, result |
-| Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono; kept for every session |
+| Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
 
 **Guards**
 
