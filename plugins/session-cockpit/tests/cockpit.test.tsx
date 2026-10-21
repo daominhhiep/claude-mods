@@ -561,7 +561,7 @@ test('the transcript draws themed prompts, tool rows and a living spinner', asyn
 
   const prompt = await $.ui.mount({
     plugin: 'session-cockpit', surface: 'terminal', component: 'UserMessage', requestId: 'm1',
-    props: { text: 'Add retry to the order puller', origin: { kind: 'composer' }, isExpanded: false },
+    props: { text: 'Add retry to the order puller', origin: { kind: 'composer' }, isExpanded: true },
   } as never)
   expect((await prompt.find({ type: 'Text', text: /You/ }))?.text).toContain('▍ You')
   expect(await prompt.find({ type: 'Text', text: /^Add retry to the order puller$/ })).toBeDefined()
@@ -572,11 +572,30 @@ test('the transcript draws themed prompts, tool rows and a living spinner', asyn
       plugin: 'session-cockpit', surface, component: 'ToolUse', requestId: 'x',
       props: {
         toolUseId: 'x', tool: 'Bash', input: { command: 'cd /repo/app && go test ./...' },
-        isRunning: false, isErrored: false, isInterrupted: false, isExpanded: false,
+        isRunning: false, isErrored: false, isInterrupted: false, isExpanded: true,
       },
     } as never)
     expect(await row.find({ type: 'Text', text: /^go test \.\/\.\.\.$/ })).toBeDefined()
     expect(await row.find({ type: 'Text', text: /^✓$/ })).toBeDefined()
     await row.unmount()
   }
+})
+
+test('transcriptStyle claude leaves the transcript to Claude Code', { options: { transcriptStyle: 'claude' } }, async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine row</Text>
+  })
+  await $.session.start({ cwd: '/repo/app', surface: 'terminal', isInteractive: true })
+  const prompt = await $.ui.mount({
+    plugin: 'session-cockpit', surface: 'terminal', component: 'UserMessage', requestId: 'm1',
+    props: { text: 'hello', origin: { kind: 'composer' }, isExpanded: true },
+  } as never)
+  expect((await prompt.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine row')
+  await prompt.unmount()
 })

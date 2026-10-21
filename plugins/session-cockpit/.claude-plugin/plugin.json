@@ -1,7 +1,7 @@
 {
   "name": "session-cockpit",
   "displayName": "Session Cockpit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Side pane and prompt band: context, cost and cache clock, budget guard, PR/CI status, live subagent tree, destructive-command guard, diff replay, activity log",
   "author": {
     "name": "daominhhiep",
@@ -25,6 +25,16 @@
         "1h"
       ],
       "default": "5m"
+    },
+    "transcriptStyle": {
+      "type": "string",
+      "title": "Transcript style",
+      "description": "cockpit redraws the spinner, your prompts and tool rows; claude leaves the transcript as Claude Code draws it.",
+      "options": [
+        "cockpit",
+        "claude"
+      ],
+      "default": "cockpit"
     }
   },
   "license": "MIT"

@@ -27,7 +27,7 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 - Your prompts get a `▍ You` label with the time, how long the turn took and what it cost.
 - Each tool call is one tidy row: status, tool icon, name, a short summary (project folder dropped, home as `~`), duration.
 
-Press ctrl+o for Claude Code's own full view at any time.
+Tool output stays Claude Code's own. Set `transcriptStyle` to `claude` to leave the whole transcript as Claude Code draws it.
 
 **Pane (`/cockpit`)**
 
@@ -73,6 +73,7 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 | --- | --- | --- |
 | `budgetUsd` | `0` (off) | Refuse tool calls once the session costs this much |
 | `cacheTtl` | `5m` | Prompt cache lifetime the clock counts down: `5m` or `1h`, as your plan or settings use |
+| `transcriptStyle` | `cockpit` | `cockpit` redraws the spinner, your prompts and tool rows; `claude` leaves the transcript as Claude Code draws it |
 
 `/budget 20` sets a limit for the current session only, `/budget off` turns it off, `/budget` shows it.
 

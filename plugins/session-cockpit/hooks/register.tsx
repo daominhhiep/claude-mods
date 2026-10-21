@@ -324,6 +324,7 @@ async function refreshAgents($: EngineInterface): Promise<void> {
 export const register: Register = (on, options) => {
   const configuredBudget = typeof options.budgetUsd === 'number' ? options.budgetUsd : 0
   const cacheMs = ttlMs(options.cacheTtl)
+  const redrawTranscript = options.transcriptStyle !== 'claude'
   let cwd = ''
 
   on('session.start', async ($, e, next) => {
@@ -945,7 +946,7 @@ export const register: Register = (on, options) => {
 
   // ── The transcript: the spinner, your prompts, tool rows ───────────
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.message !== null) return next(e)
+    if (!redrawTranscript || e.surface !== 'terminal' || e.props.message !== null) return next(e)
     const paint = painter(await read($, theme))
     const f = await read($, frame)
     const now = await $.clock.now()
@@ -976,7 +977,8 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    if (e.props.origin.kind !== 'composer' || e.props.isExpanded) return next(e)
+    // A typed prompt is drawn whole either way, so the expanded view needs no pass.
+    if (!redrawTranscript || e.props.origin.kind !== 'composer') return next(e)
     const text = e.props.text
     if (text.trim() === '' || text.trim().startsWith('/')) return next(e)
     const paint = painter(await read($, theme))
@@ -1010,7 +1012,9 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    if (e.props.isExpanded === true) return next(e)
+    // The header row only: a standalone call's output is its own ToolResult row,
+    // which stays Claude Code's.
+    if (!redrawTranscript) return next(e)
     const paint = painter(await read($, theme))
     const f = await read($, frame)
     const call = (await read($, calls)).find(c => c.id === e.requestId)
