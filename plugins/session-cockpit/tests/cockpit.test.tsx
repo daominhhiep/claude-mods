@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, pet, petMood, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -815,4 +815,93 @@ test('effects burst, flash, type out and fold away, and the Config tab turns the
   await $.turn.complete({ turnId: 't3', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
   texts = await bandTexts()
   expect(texts.some(t => t.includes('DONE'))).toBe(false)
+})
+
+test('the pet moves with the session: works, cheers, frets and naps', async () => {
+  const base = { now: 10_000, isWorking: false, isCold: false, turnEndedAt: null, failedAt: null }
+  expect(petMood(base)).toBe('idle')
+  expect(petMood({ ...base, isWorking: true })).toBe('work')
+  expect(petMood({ ...base, turnEndedAt: 8_000 })).toBe('happy')
+  expect(petMood({ ...base, turnEndedAt: 1_000 })).toBe('idle')
+  expect(petMood({ ...base, isWorking: true, failedAt: 9_000 })).toBe('oops')
+  expect(petMood({ ...base, isCold: true })).toBe('sleep')
+
+  const rows = (mood: Parameters<typeof pet>[0], now: number, sweat = false) =>
+    pet(mood, now, sweat).map(r => r.map(x => x.text).join(''))
+  // Every row fills the yard exactly, whatever the mood.
+  for (const mood of ['idle', 'work', 'happy', 'oops', 'sleep'] as const) {
+    for (const now of [600, 1_850, 3_100]) {
+      expect(rows(mood, now).every(r => Array.from(r).length === PET_WIDTH)).toBe(true)
+    }
+  }
+  expect(rows('idle', 600)[0]).toContain('▐▛███▜▌')
+  // At work it paces: a later step stands somewhere else.
+  expect(rows('work', 600)[1]).not.toBe(rows('work', 1_100)[1])
+  expect(rows('happy', 600).join('')).toMatch(/[✦✧]/)
+  expect(rows('oops', 600)[0]).toContain('!')
+  expect(pet('oops', 600, false)[1]!.some(x => x.color === 'error')).toBe(true)
+  expect(rows('sleep', 600).join('')).toMatch(/[zZ]/)
+  expect(rows('sleep', 600)[0]).toContain('▐█████▌')
+  expect(rows('idle', 600, true)[0]).toMatch(/[',]/)
+})
+
+test('the pet lives in the band and the Config tab sends it away', async ($, on) => {
+  mock.store(on)
+  const state = { now: 1_700_000_000_600 }
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    const text = (e.props as { text?: unknown }).text
+    return <Text>{typeof text === 'string' ? text : ''}</Text>
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: {}, isError: true }) as never)
+  on('session.usage', () => ({
+    value: {
+      startedAt: 1_700_000_000_000,
+      context: { tokens: 20_000, window: 200_000, percent: 10 },
+      rateLimits: [],
+      cost: { usd: 1 },
+    },
+  }))
+  const BAND = {
+    plugin: 'session-cockpit',
+    component: 'AbovePrompt',
+    requestId: 'above-prompt',
+    surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, view: {} },
+  } as const
+  const bandText = async () => {
+    const band = await $.ui.mount(BAND as never)
+    const text = (await band.findAll({ type: 'Text' })).map(x => x.text).join('\n')
+    await band.unmount()
+    return text
+  }
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  expect(await bandText()).toContain('▐▛███▜▌')
+
+  // A failed tool makes it fret.
+  await $.turn.start({ text: 'one', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'false' } as never)
+  expect(await bandText()).toMatch(/▐▛███▜▌ !/)
+
+  state.now += 4_000
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 4000, isAborted: false, reason: 'answer' })
+  expect(await bandText()).toMatch(/[✦✧] ▐/)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-config' })
+  expect(await ui.find({ type: 'Text', text: /Claude pet/ })).toBeDefined()
+  await ui.press({ key: 'fx-pet' })
+  await ui.unmount()
+  const text = await bandText()
+  expect(text).not.toContain('▐▛')
+  expect(text).not.toContain('▐█')
 })

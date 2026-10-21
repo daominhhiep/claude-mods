@@ -138,6 +138,7 @@ declare module 'claude-code' {
         breathe: boolean
         typing: boolean
         ring: boolean
+        pet: boolean
       }
       burst: { at: number; text: string } | null
       flash: { at: number; percent: number } | null
