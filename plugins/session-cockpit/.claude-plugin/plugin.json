@@ -1,7 +1,7 @@
 {
   "name": "session-cockpit",
   "displayName": "Session Cockpit",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Side pane and prompt band: context, cost and cache clock, budget guard, PR/CI status, live subagent tree, destructive-command guard, diff replay, activity log",
   "author": {
     "name": "daominhhiep",

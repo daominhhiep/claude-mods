@@ -1044,8 +1044,8 @@ export const register: Register = (on, options) => {
           <Box flexShrink={0}>
             <Text color={paint('claude')}>▍ </Text>
           </Box>
-          <Box flexGrow={1} flexShrink={1}>
-            <Text>{text}</Text>
+          <Box flexGrow={1} flexShrink={1} backgroundColor="userMessageBackground" paddingX={1}>
+            <Text color={paint('text')}>{text}</Text>
           </Box>
         </Box>
       </Box>
