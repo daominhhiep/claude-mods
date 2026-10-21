@@ -398,3 +398,42 @@ test('the band shows the model and effort of the latest request', async ($, on) 
     await band.unmount()
   }
 })
+
+test('context is measured against the auto-compact threshold', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: 1_700_000_000_000,
+      context: {
+        tokens: 250_000,
+        window: 1_000_000,
+        percent: 25,
+        breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 270_000 } as never,
+      },
+      rateLimits: [],
+      cost: { usd: 1 },
+    },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const band = await $.ui.mount({ ...BAND, surface } as never)
+    expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('⚠ 93%')
+    await band.unmount()
+
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^93%$/ })).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain(
+      '250.0k of 270.0k before auto-compact · window 1M',
+    )
+    await ui.unmount()
+  }
+})

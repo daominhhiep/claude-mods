@@ -26,6 +26,7 @@ export type WeatherReading = {
   percent: number
   tokens: number
   window: number
+  compactAt: number | null
   usd: number | null
 }
 
@@ -111,6 +112,7 @@ declare module 'claude-code' {
       prRef: string | null
       agents: AgentNode[]
       modelInfo: { model: string; effort: string | null } | null
+      compactAt: number | null
     }
   }
 }

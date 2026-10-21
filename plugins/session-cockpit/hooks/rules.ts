@@ -345,3 +345,12 @@ export function cachedShare(a: { uncached: number; cacheRead: number; cacheWrite
   const total = a.uncached + a.cacheRead + a.cacheWrite
   return total === 0 ? null : Math.round((a.cacheRead / total) * 100)
 }
+
+/**
+ * How full the context is, as a whole percentage of the point where Claude
+ * Code compacts it when auto-compact is on, else of the model's window.
+ */
+export function contextPercent(tokens: number, window: number, compactAt: number | null): number {
+  const limit = compactAt !== null && compactAt > 0 ? compactAt : window
+  return limit > 0 ? Math.round((tokens / limit) * 100) : 0
+}

@@ -17,6 +17,7 @@ import {
   bar,
   cachedShare,
   clockLeft,
+  contextPercent,
   detectBlast,
   parseBudget,
   prRefFrom,
@@ -52,6 +53,7 @@ const pr = atom({ plugin: 'session-cockpit', key: 'pr' } as const, null)
 const prRef = atom({ plugin: 'session-cockpit', key: 'prRef' } as const, null)
 const agents = atom({ plugin: 'session-cockpit', key: 'agents' } as const, [])
 const modelInfo = atom({ plugin: 'session-cockpit', key: 'modelInfo' } as const, null)
+const compactAt = atom({ plugin: 'session-cockpit', key: 'compactAt' } as const, null)
 
 const MAX_WEATHER = 60
 const MAX_BLASTS = 30
@@ -80,6 +82,7 @@ function clockTime(ms: number): string {
 }
 
 function compact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
@@ -118,13 +121,22 @@ async function runPreview(
 }
 
 async function recordWeather($: EngineInterface, usage: SessionUsage): Promise<void> {
-  const { percent, tokens, window } = usage.context
-  if (percent !== undefined && tokens !== undefined) {
+  const { tokens, window, breakdown } = usage.context
+  // Claude Code compacts at its own threshold, often well below the model's
+  // window: measure against that when auto-compact is on.
+  const threshold =
+    breakdown !== undefined && breakdown.isAutoCompactEnabled
+      ? (breakdown.autoCompactThreshold ?? null)
+      : null
+  await update($, compactAt, () => threshold)
+  if (tokens !== undefined) {
+    const percent = contextPercent(tokens, window, threshold)
     const reading: WeatherReading = {
       at: await $.clock.now(),
       percent,
       tokens,
       window,
+      compactAt: threshold,
       usd: usage.cost?.usd ?? null,
     }
     const history = await read($, weather)
@@ -423,7 +435,7 @@ export const register: Register = (on, options) => {
       await update($, cacheAt, () => at)
     }
 
-    const usage = await $.session.usage()
+    const usage = await $.session.usage({ breakdown: 'summary' })
     await recordWeather($, usage)
     const usdNow = usage.cost?.usd ?? null
     await update($, costs, list =>
@@ -576,7 +588,11 @@ export const register: Register = (on, options) => {
     const isRunning = last !== undefined && last.durationMs === null
     const usd = usage.cost?.usd
     const limit = await limitOf($, configuredBudget)
-    const pct = usage.context.percent
+    const limitAt = await read($, compactAt)
+    const pct =
+      usage.context.tokens === undefined
+        ? undefined
+        : contextPercent(usage.context.tokens, usage.context.window, limitAt)
     const level = pct === undefined ? null : levelOf(pct)
     const mini = pct === undefined ? null : bar(pct, 10)
     const warmAt = await read($, cacheAt)
@@ -620,7 +636,7 @@ export const register: Register = (on, options) => {
               <Text color={level.color}>{mini.fill}</Text>
               <Text backgroundColor="subtle">{mini.rest}</Text>
             </Text>,
-            'context',
+            limitAt === null ? 'context' : 'of compact limit',
           ),
       usd === undefined
         ? null
@@ -834,7 +850,11 @@ export const register: Register = (on, options) => {
             <Text color="inactive">{scale(barWidth)}</Text>
             <Text>
               <Text tabular>{compact(last.tokens)}</Text>
-              <Text color="subtle"> of {compact(last.window)} tokens</Text>
+              <Text color="subtle">
+                {last.compactAt === null
+                  ? ` of ${compact(last.window)} tokens`
+                  : ` of ${compact(last.compactAt)} before auto-compact · window ${compact(last.window)}`}
+              </Text>
               {history.length < 2 ? null : (
                 <Text>
                   <Text color="subtle">{'   trend '}</Text>
