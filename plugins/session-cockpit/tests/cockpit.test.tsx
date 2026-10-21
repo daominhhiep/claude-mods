@@ -853,7 +853,6 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('clock.now', () => ({ value: state.now }))
   on('clock.every', () => ({ value: {} as never }))
-  on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     const text = (e.props as { text?: unknown }).text
@@ -885,7 +884,12 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   }
 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-  expect(await bandText()).toContain('▐▛███▜▌')
+  // No model reading yet, so no second row of chips: the pet still has its
+  // three rows, feet included.
+  const first = await bandText()
+  expect(first).not.toContain('opus')
+  expect(first).toContain('▐▛███▜▌')
+  expect(first).toContain('▘▘ ▝▝')
 
   // A failed tool makes it fret.
   await $.turn.start({ text: 'one', turnId: 't1' })

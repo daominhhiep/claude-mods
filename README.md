@@ -26,7 +26,7 @@ Effects, each turned on or off in the Config tab:
 - **Breathing frame** in the last minute before the cache goes cold.
 - **Typing**: each new reply from Claude appears letter by letter, in about a second.
 - **Light around the frame.**
-- **Claude pet** lives at the band's right edge: it paces while Claude works, cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows when the band has its three rows and room to spare.
+- **Claude pet** lives at the band's right edge: it paces while Claude works, cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare, with or without the model row.
 
 Under another mod's note (such as You should know), or when there is little room, the band folds to one row so nothing scrolls.
 

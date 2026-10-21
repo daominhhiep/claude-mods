@@ -1023,11 +1023,12 @@ export const register: Register = (on, options) => {
     const inner = W - 4
     const working2 = isRunning || e.props.isWorking
 
-    // The pet lives at the right edge when the band has its three rows and
-    // room to spare; the rows narrow to make way for its yard.
+    // The pet lives at the right edge of the full frame when there is room to
+    // spare; the rows narrow to make way for its yard, and a blank row stands
+    // in for one the band has nothing to show in, so the pet always fits.
     const hasGauge = pctShown !== undefined && e.props.maxRows >= 5
     const hasSecond = secondChips.length > 0 && e.props.maxRows >= 4
-    const showPet = fx.pet && hasGauge && hasSecond && inner >= 60
+    const showPet = fx.pet && e.props.maxRows >= 7 && inner >= 60
     const body = showPet ? inner - PET_WIDTH - 1 : inner
     const lastCall = (await read($, calls)).at(-1)
     const petRows = showPet
@@ -1085,6 +1086,7 @@ export const register: Register = (on, options) => {
     if (hasSecond) {
       rows.push(<Text wrap="truncate-end">{spaced(secondChips)}</Text>)
     }
+    while (showPet && rows.length < 3) rows.push(<Text> </Text>)
     const R = rows.length
     if (isBoom && boom !== null) {
       // The firework takes the rows for its two seconds.
