@@ -88,6 +88,7 @@ const pinScope = atom({ plugin: 'session-cockpit', key: 'pinScope' } as const, '
 const sessionId = atom({ plugin: 'session-cockpit', key: 'sessionId' } as const, null)
 const keepDays = atom({ plugin: 'session-cockpit', key: 'keepDays' } as const, 30)
 const frame = atom({ plugin: 'session-cockpit', key: 'frame' } as const, 0)
+const paneFrame = atom({ plugin: 'session-cockpit', key: 'paneFrame' } as const, 0)
 const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude')
 const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEFAULT_EFFECTS)
 const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
@@ -109,7 +110,7 @@ const BUDGET_WARN = 0.8
 const MAX_FILE_BYTES = 1_000_000
 const PREVIEW_LINES = 12
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
-const FRAME_MS = 125
+const FRAME_MS = 100
 const WAVE_EDGE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error']
 const EFFECTS_KEY = 'effects'
 const TYPE_CHAR_MS = 8
@@ -423,11 +424,16 @@ export const register: Register = (on, options) => {
     $.clock.every(FRAME_MS, () => {
       beats += 1
       void (async () => {
-        // Eight frames a second while an effect plays, four while something
-        // moves, one a second at rest.
-        if (await isPlaying($)) await update($, frame, n => n + 1)
-        else if (beats % 2 === 0 && (await isBusy($, cacheMs))) await update($, frame, n => n + 1)
-        else if (beats % 8 === 0) await update($, frame, n => n + 1)
+        // Ten frames a second while an effect plays, five while something
+        // moves, one a second at rest. The pane, heavier to draw, moves at
+        // two a second at most.
+        let moved = false
+        if (await isPlaying($)) moved = true
+        else if (beats % 2 === 0 && (await isBusy($, cacheMs))) moved = true
+        else if (beats % 10 === 0) moved = true
+        if (!moved) return
+        await update($, frame, n => n + 1)
+        if (beats % 5 === 0) await update($, paneFrame, n => n + 1)
       })()
     })
 
@@ -1019,21 +1025,25 @@ export const register: Register = (on, options) => {
       const filled = g.runs.reduce((n, r) => n + Array.from(r.text).length, 0)
       const at = working2 && filled > 0 ? (f * 2) % (filled + 6) : -1
       const blink = isFlash && f % 2 === 0
+      // Cells of one color are drawn as one run: a few nodes, not one per cell.
+      const runs: { text: string; color: string }[] = []
       let i = 0
+      for (const r of g.runs) {
+        for (const ch of Array.from(r.text)) {
+          const here = i++
+          const near = Math.abs(here - at)
+          const base = blink ? 'text' : fx.wave && working2 ? waveColor(here, f) : r.color
+          const color = near === 0 ? 'text' : near === 1 ? 'warning' : base
+          const lastRun = runs[runs.length - 1]
+          if (lastRun !== undefined && lastRun.color === color) lastRun.text += ch
+          else runs.push({ text: ch, color })
+        }
+      }
       return (
         <Text wrap="truncate">
-          {g.runs.flatMap(r =>
-            Array.from(r.text).map(ch => {
-              const here = i++
-              const near = Math.abs(here - at)
-              const base = blink
-                ? 'text'
-                : fx.wave && working2
-                  ? waveColor(here, f)
-                  : r.color
-              return <Text color={paint(near === 0 ? 'text' : near === 1 ? 'warning' : base)}>{ch}</Text>
-            }),
-          )}
+          {runs.map(r => (
+            <Text color={paint(r.color)}>{r.text}</Text>
+          ))}
           <Text color={paint(blink && flLevel !== null ? flLevel.color : 'inactive')}>{g.rest}</Text>
         </Text>
       )
@@ -1304,7 +1314,9 @@ export const register: Register = (on, options) => {
     // which stays Claude Code's.
     if (!redrawTranscript) return next(e)
     const paint = painter(await read($, theme))
-    const f = await read($, frame)
+    // Only a running row follows the frame; finished rows stay still and are
+    // not redrawn on every tick.
+    const f = e.props.isRunning ? await read($, frame) : 0
     const call = (await read($, calls)).find(c => c.id === e.requestId)
     const input =
       typeof e.props.input === 'object' && e.props.input !== null ? (e.props.input as Record<string, unknown>) : {}
@@ -1375,7 +1387,7 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    const f = await read($, frame)
+    const f = await read($, paneFrame)
     const allCosts = await read($, costs)
     const busy = allCosts.some(p => p.durationMs === null)
     // Full labels when the row holds them, short ones when not: the tabs never wrap.

@@ -129,6 +129,7 @@ declare module 'claude-code' {
       sessionId: string | null
       keepDays: number
       frame: number
+      paneFrame: number
       theme: string
       effects: {
         fireworks: boolean
