@@ -548,13 +548,17 @@ test('motion helpers ease, type and sweep', async () => {
   expect(typed('abc', 0)).toBe('▌')
   expect(typed('abc', 35)).toBe('a▌')
   expect(typed('abc', 500)).toBe('abc')
-  // The gauge fills in eighths of a cell; the ring's light moves with the frame.
+  // The gauge fills in eighths of a cell; the ring's light is three cells wide
+  // with a tail behind it, and wraps round the frame.
   const g = smoothBar(50, 10)
   expect(g.runs.map(r => r.text).join('') + g.rest).toBe('█████░░░░░')
   expect(smoothBar(55, 10).runs.map(r => r.text).join('')).toBe('█████▌')
   expect(ringGlow(0, 0, 40)).toBe(2)
-  expect(ringGlow(3, 1, 40)).toBe(2)
-  expect(ringGlow(20, 1, 40)).toBe(0)
+  expect(ringGlow(1, 3, 40)).toBe(2)
+  expect(ringGlow(0, 3, 40)).toBe(1)
+  expect(ringGlow(4, 3, 40)).toBe(0)
+  expect(ringGlow(39, 41, 40)).toBe(2)
+  expect(ringGlow(20, 3, 40)).toBe(0)
   expect(THEMES.some(t => t.id === 'cyberpunk' && t.colors.claude === '#fcee0a')).toBe(true)
   expect(sweep(0, 4)).toBe('▰▱▱▱')
   expect(sweep(4, 4)).toBe('▱▱▰▱')

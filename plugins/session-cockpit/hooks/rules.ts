@@ -524,13 +524,14 @@ export function smoothBar(
 
 /**
  * How bright cell `index` of a frame `perimeter` cells around is, with a light
- * running round it at `frame`: 2 under the light, 1 in its tail, 0 elsewhere.
+ * whose head is at cell `head`: 2 under the light, 1 in its tail, 0 elsewhere.
+ * The light is three cells wide, so a step of two always overlaps the last.
  */
-export function ringGlow(index: number, frame: number, perimeter: number): 0 | 1 | 2 {
+export function ringGlow(index: number, head: number, perimeter: number): 0 | 1 | 2 {
   if (perimeter <= 0) return 0
-  const head = (frame * 3) % perimeter
-  const behind = (((head - index) % perimeter) + perimeter) % perimeter
-  return behind <= 1 ? 2 : behind <= 8 ? 1 : 0
+  const at = ((head % perimeter) + perimeter) % perimeter
+  const behind = (((at - index) % perimeter) + perimeter) % perimeter
+  return behind <= 2 ? 2 : behind <= 10 ? 1 : 0
 }
 
 /** The color a theme paints a theme key with; unknown keys and raw colors pass through. */
@@ -676,7 +677,7 @@ const WAVE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error
 
 /** The color cell `index` of the gauge takes in the wave at `frame`. */
 export function waveColor(index: number, frame: number): string {
-  const band = Math.floor((index - frame * 2) / 4)
+  const band = Math.floor((index - frame) / 4)
   return WAVE[((band % WAVE.length) + WAVE.length) % WAVE.length]!
 }
 
