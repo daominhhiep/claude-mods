@@ -54,6 +54,9 @@ import {
   FLASH_MS,
   burst,
   effectsFrom,
+  pet,
+  petMood,
+  PET_WIDTH,
   waveColor,
   ringGlow,
   smoothBar,
@@ -1020,9 +1023,33 @@ export const register: Register = (on, options) => {
     const inner = W - 4
     const working2 = isRunning || e.props.isWorking
 
+    // The pet lives at the right edge when the band has its three rows and
+    // room to spare; the rows narrow to make way for its yard.
+    const hasGauge = pctShown !== undefined && e.props.maxRows >= 5
+    const hasSecond = secondChips.length > 0 && e.props.maxRows >= 4
+    const showPet = fx.pet && hasGauge && hasSecond && inner >= 60
+    const body = showPet ? inner - PET_WIDTH - 1 : inner
+    const lastCall = (await read($, calls)).at(-1)
+    const petRows = showPet
+      ? pet(
+          petMood({
+            now,
+            isWorking: working2,
+            isCold: left !== null && left <= 0,
+            turnEndedAt: last !== undefined && last.durationMs !== null ? last.startedAt + last.durationMs : null,
+            failedAt:
+              lastCall !== undefined && lastCall.status === 'error' && lastCall.ms !== null
+                ? lastCall.startedAt + lastCall.ms
+                : null,
+          }),
+          now,
+          pctShown !== undefined && pctShown >= 75,
+        )
+      : null
+
     const gaugeRow = () => {
       if (pctShown === undefined) return null
-      const g = smoothBar(pctShown, inner)
+      const g = smoothBar(pctShown, body)
       const filled = g.runs.reduce((n, r) => n + Array.from(r.text).length, 0)
       const at = working2 && filled > 0 ? f % (filled + 6) : -1
       const lit = isFlash && blink(250)
@@ -1051,17 +1078,17 @@ export const register: Register = (on, options) => {
     }
 
     const rows: RenderChildren[] = [<Text wrap="truncate-end">{spaced(firstChips)}</Text>]
-    if (e.props.maxRows >= 5) {
+    if (hasGauge) {
       const g = gaugeRow()
       if (g !== null) rows.push(g)
     }
-    if (secondChips.length > 0 && e.props.maxRows >= 4) {
+    if (hasSecond) {
       rows.push(<Text wrap="truncate-end">{spaced(secondChips)}</Text>)
     }
     const R = rows.length
     if (isBoom && boom !== null) {
       // The firework takes the rows for its two seconds.
-      const grid = burst(boomSince, inner, R, Math.floor(boom.at / 1000))
+      const grid = burst(boomSince, body, R, Math.floor(boom.at / 1000))
       rows.splice(
         0,
         R,
@@ -1185,6 +1212,14 @@ export const register: Register = (on, options) => {
             <Box flexGrow={1} flexShrink={1} overflow="hidden">
               {row}
             </Box>
+            {petRows === null ? null : (
+              <Box flexShrink={0}>
+                <Text>
+                  {' '}
+                  {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
+                </Text>
+              </Box>
+            )}
             <Box flexShrink={0}>
               <Text color={paint(edge(W + r))}>{' │'}</Text>
             </Box>

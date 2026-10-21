@@ -637,7 +637,7 @@ export function headsUp(text: string): string | null {
 
 // ── Effects ──────────────────────────────────────────────────────────
 
-export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring'
+export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet'
 export type Effects = Record<EffectId, boolean>
 
 /** Each effect the Config tab turns on and off, in the order it lists them. */
@@ -648,6 +648,7 @@ export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
   { id: 'breathe', label: 'Breathing frame', hint: 'The frame glows slowly in the last minute before the cache goes cold.' },
   { id: 'typing', label: "Type out Claude's replies", hint: 'Each new reply appears letter by letter, in about a second.' },
   { id: 'ring', label: 'Light around the frame', hint: 'A light circles the band: quick while Claude works, slow at rest.' },
+  { id: 'pet', label: 'Claude pet', hint: 'A little Claude lives in the band: it runs while Claude works, cheers when a turn ends and naps when the cache goes cold.' },
 ]
 
 export const DEFAULT_EFFECTS: Effects = {
@@ -657,6 +658,7 @@ export const DEFAULT_EFFECTS: Effects = {
   breathe: true,
   typing: true,
   ring: true,
+  pet: true,
 }
 
 /** Saved effects read back, any missing or broken entry at its default. */
@@ -732,4 +734,97 @@ export function burst(
     }
   }
   return grid
+}
+
+// ── The pet ──────────────────────────────────────────────────────────
+
+export type PetMood = 'idle' | 'work' | 'happy' | 'oops' | 'sleep'
+
+/** How many cells the pet's yard takes at the band's right edge. */
+export const PET_WIDTH = 16
+/** How long the pet cheers after a turn, and frets after a failed tool. */
+export const PET_HAPPY_MS = 5_000
+export const PET_OOPS_MS = 3_000
+
+const PET_BODY = 9
+const PET_EYES = { open: ' ▐▛███▜▌ ', shut: ' ▐█████▌ ' }
+const PET_ARMS = { down: '▝▜█████▛▘', up: '▗▟█████▙▖' }
+const PET_FEET = { together: '  ▘▘ ▝▝  ', apart: ' ▘▘   ▝▝ ' }
+
+/** What a pet should feel, the strongest reason first. */
+export function petMood(s: {
+  now: number
+  isWorking: boolean
+  isCold: boolean
+  turnEndedAt: number | null
+  failedAt: number | null
+}): PetMood {
+  if (s.failedAt !== null && s.now - s.failedAt < PET_OOPS_MS) return 'oops'
+  if (s.turnEndedAt !== null && s.now - s.turnEndedAt < PET_HAPPY_MS && !s.isWorking) return 'happy'
+  if (s.isWorking) return 'work'
+  return s.isCold ? 'sleep' : 'idle'
+}
+
+/**
+ * The pet in its yard at `now`: three rows, each a list of colored runs
+ * exactly PET_WIDTH cells wide. Motion is placed by the clock, so the pet
+ * moves at the same speed however often the band is drawn.
+ */
+export function pet(mood: PetMood, now: number, isSweating: boolean): { text: string; color: string }[][] {
+  const grid = Array.from({ length: 3 }, () => Array.from({ length: PET_WIDTH }, () => ({ ch: ' ', color: '' })))
+  const put = (row: number, col: number, ch: string, color: string) => {
+    if (row < 0 || row > 2 || col < 0 || col >= PET_WIDTH) return
+    grid[row]![col] = { ch, color }
+  }
+  const beat = (ms: number) => Math.floor(now / ms)
+  const room = PET_WIDTH - PET_BODY - 1
+  let x = Math.floor(room / 2)
+  let eyes = beat(500) % 8 === 0 ? PET_EYES.shut : PET_EYES.open
+  let arms = PET_ARMS.down
+  let feet = PET_FEET.together
+  let body = 'claude'
+
+  if (mood === 'work') {
+    // Paces its yard, a step every quarter second, legs swinging.
+    const span = room * 2
+    const step = beat(250) % span
+    x = step <= room ? step : span - step
+    feet = beat(250) % 2 === 0 ? PET_FEET.together : PET_FEET.apart
+  } else if (mood === 'happy') {
+    // Jumps for joy, arms up on every other beat, with sparkles.
+    const up = beat(300) % 2 === 0
+    arms = up ? PET_ARMS.up : PET_ARMS.down
+    feet = up ? PET_FEET.apart : PET_FEET.together
+    put(0, x + PET_BODY, up ? '✦' : '✧', 'warning')
+    put(0, x - 1, up ? '✧' : '✦', 'warning')
+  } else if (mood === 'oops') {
+    // Shakes on the spot, red, with an exclamation.
+    x += beat(100) % 2 === 0 ? 0 : 1
+    eyes = PET_EYES.open
+    body = 'error'
+    put(0, x + PET_BODY, '!', 'error')
+  } else if (mood === 'sleep') {
+    eyes = PET_EYES.shut
+    body = 'subtle'
+    // The z's rise, one row a second.
+    const z = beat(1000) % 2
+    put(1 - z, x + PET_BODY, z === 0 ? 'z' : 'Z', 'inactive')
+  }
+
+  const rows = [eyes, arms, feet]
+  rows.forEach((line, row) => Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)))
+  if (isSweating && mood !== 'sleep') {
+    // A drop drips beside its head when the context fills up.
+    put(0, x, beat(500) % 2 === 0 ? "'" : ',', 'suggestion')
+  }
+
+  return grid.map(line => {
+    const runs: { text: string; color: string }[] = []
+    for (const c of line) {
+      const last = runs[runs.length - 1]
+      if (last !== undefined && last.color === c.color) last.text += c.ch
+      else runs.push({ text: c.ch, color: c.color })
+    }
+    return runs
+  })
 }
