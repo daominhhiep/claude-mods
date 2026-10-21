@@ -853,7 +853,6 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('clock.now', () => ({ value: state.now }))
   on('clock.every', () => ({ value: {} as never }))
-  on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     const text = (e.props as { text?: unknown }).text
@@ -885,15 +884,44 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   }
 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-  expect(await bandText()).toContain('▐▛███▜▌')
+  // No model reading yet, so no second row of chips: the pet still has its
+  // three rows, feet included.
+  const first = await bandText()
+  expect(first).not.toContain('opus')
+  expect(first).toContain('▐▛███▜▌')
+  expect(first).toContain('▘▘ ▝▝')
 
   // A failed tool makes it fret.
+  const startedAt = state.now
   await $.turn.start({ text: 'one', turnId: 't1' })
   await $.tool.call({ tool: 'Bash', command: 'false' } as never)
-  expect(await bandText()).toMatch(/▐▛███▜▌ !/)
+  // While Claude works the pet is out in the chat, under the spinner, fretting
+  // over the failed tool; its yard in the band waits empty.
+  const SPIN = {
+    plugin: 'session-cockpit', surface: 'terminal', component: 'Spinner', requestId: 'spin',
+    props: { word: 'Cooking', message: null, suffix: '…', mode: 'responding' },
+  } as const
+  const spinText = async () => {
+    const sp = await $.ui.mount(SPIN as never)
+    const rows = (await sp.findAll({ type: 'Text' })).map(x => x.text)
+    await sp.unmount()
+    return rows.join('\n')
+  }
+  expect(await bandText()).not.toContain('▐▛')
+  expect(await spinText()).toMatch(/▐▛███▜▌ !/)
+  // Then it runs the width of the chat: well past the band's small yard.
+  state.now += 3_000
+  const at = (text: string) => Math.max(...text.split('\n').map(l => l.indexOf('▝▜')))
+  const seen = new Set<number>()
+  for (let i = 0; i < 12; i++) {
+    seen.add(at(await spinText()))
+    state.now += 700
+  }
+  expect(Math.max(...seen)).toBeGreaterThan(PET_WIDTH)
 
   state.now += 4_000
-  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 4000, isAborted: false, reason: 'answer' })
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: state.now - startedAt, isAborted: false, reason: 'answer' })
+  // Home again, it cheers in its yard.
   expect(await bandText()).toMatch(/[✦✧] ▐/)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })

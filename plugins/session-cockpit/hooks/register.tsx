@@ -97,6 +97,8 @@ const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEF
 const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
 const flashAt = atom({ plugin: 'session-cockpit', key: 'flash' } as const, null)
 
+// How wide the band last drew, so the pet knows how far it can run in the chat.
+let chatColumns = 80
 // When the last reply that is typing out finishes; frames run fast until then.
 let typingUntil = 0
 // When each reply block was first drawn, so it types out once.
@@ -1019,18 +1021,25 @@ export const register: Register = (on, options) => {
     const isFlash = fx.flash && fl !== null && flSince < FLASH_MS
     const flLevel = fl === null ? null : levelOf(fl.percent)
 
+    chatColumns = e.props.bodyColumns
     const W = Math.max(40, e.props.bodyColumns)
     const inner = W - 4
     const working2 = isRunning || e.props.isWorking
 
-    // The pet lives at the right edge when the band has its three rows and
-    // room to spare; the rows narrow to make way for its yard.
+    // The pet lives at the right edge of the full frame when there is room to
+    // spare; the rows narrow to make way for its yard, and a blank row stands
+    // in for one the band has nothing to show in, so the pet always fits.
     const hasGauge = pctShown !== undefined && e.props.maxRows >= 5
     const hasSecond = secondChips.length > 0 && e.props.maxRows >= 4
-    const showPet = fx.pet && hasGauge && hasSecond && inner >= 60
+    const showPet = fx.pet && e.props.maxRows >= 7 && inner >= 60
     const body = showPet ? inner - PET_WIDTH - 1 : inner
     const lastCall = (await read($, calls)).at(-1)
-    const petRows = showPet
+    // While Claude works the pet is out running in the chat, under the
+    // spinner; its yard waits empty.
+    const isPetAway = showPet && redrawTranscript && working2
+    const petRows = isPetAway
+      ? [0, 1, 2].map(() => [{ text: ' '.repeat(PET_WIDTH), color: '' }])
+      : showPet
       ? pet(
           petMood({
             now,
@@ -1085,6 +1094,7 @@ export const register: Register = (on, options) => {
     if (hasSecond) {
       rows.push(<Text wrap="truncate-end">{spaced(secondChips)}</Text>)
     }
+    while (showPet && rows.length < 3) rows.push(<Text> </Text>)
     const R = rows.length
     if (isBoom && boom !== null) {
       // The firework takes the rows for its two seconds.
@@ -1272,8 +1282,8 @@ export const register: Register = (on, options) => {
     const usd = (await $.session.usage()).cost?.usd
     const spent =
       running !== null && running.usdAtStart !== null && usd !== undefined ? usd - running.usdAtStart : null
-    const { Text } = $.ui.resolve(e)
-    return (
+    const { Box, Text } = $.ui.resolve(e)
+    const line = (
       <Text>
         <Text color={paint('claude')}>{spin(f)} </Text>
         {shimmer(e.props.word, f).map(r => (
@@ -1290,6 +1300,31 @@ export const register: Register = (on, options) => {
           </Text>
         )}
       </Text>
+    )
+    if (!(await read($, effects)).pet) return line
+    // The pet runs the width of the chat under the spinner while Claude works.
+    const lastCall = (await read($, calls)).at(-1)
+    const mood = petMood({
+      now,
+      isWorking: true,
+      isCold: false,
+      turnEndedAt: null,
+      failedAt:
+        lastCall !== undefined && lastCall.status === 'error' && lastCall.ms !== null
+          ? lastCall.startedAt + lastCall.ms
+          : null,
+    })
+    const readings = await read($, weather)
+    const isSweating = (readings.at(-1)?.percent ?? 0) >= 75
+    return (
+      <Box flexDirection="column">
+        {line}
+        {pet(mood, now, isSweating, chatColumns - 2).map((row, r) => (
+          <Box key={`pet-${r}`} height={1} overflow="hidden">
+            <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
+          </Box>
+        ))}
+      </Box>
     )
   }).catch(($, e, next) => next(e))
 

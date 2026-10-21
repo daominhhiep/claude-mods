@@ -766,18 +766,24 @@ export function petMood(s: {
 }
 
 /**
- * The pet in its yard at `now`: three rows, each a list of colored runs
- * exactly PET_WIDTH cells wide. Motion is placed by the clock, so the pet
- * moves at the same speed however often the band is drawn.
+ * The pet in a yard `width` cells wide at `now`: three rows, each a list of
+ * colored runs exactly that wide. Motion is placed by the clock, so the pet
+ * moves at the same speed however often it is drawn.
  */
-export function pet(mood: PetMood, now: number, isSweating: boolean): { text: string; color: string }[][] {
-  const grid = Array.from({ length: 3 }, () => Array.from({ length: PET_WIDTH }, () => ({ ch: ' ', color: '' })))
+export function pet(
+  mood: PetMood,
+  now: number,
+  isSweating: boolean,
+  width: number = PET_WIDTH,
+): { text: string; color: string }[][] {
+  const w = Math.max(PET_WIDTH, Math.floor(width))
+  const grid = Array.from({ length: 3 }, () => Array.from({ length: w }, () => ({ ch: ' ', color: '' })))
   const put = (row: number, col: number, ch: string, color: string) => {
-    if (row < 0 || row > 2 || col < 0 || col >= PET_WIDTH) return
+    if (row < 0 || row > 2 || col < 0 || col >= w) return
     grid[row]![col] = { ch, color }
   }
   const beat = (ms: number) => Math.floor(now / ms)
-  const room = PET_WIDTH - PET_BODY - 1
+  const room = w - PET_BODY - 1
   let x = Math.floor(room / 2)
   let eyes = beat(500) % 8 === 0 ? PET_EYES.shut : PET_EYES.open
   let arms = PET_ARMS.down
@@ -785,9 +791,10 @@ export function pet(mood: PetMood, now: number, isSweating: boolean): { text: st
   let body = 'claude'
 
   if (mood === 'work') {
-    // Paces its yard, a step every quarter second, legs swinging.
+    // Paces its yard, legs swinging: a step every quarter second in the
+    // band's yard, ten a second across a wide one so it gets somewhere.
     const span = room * 2
-    const step = beat(250) % span
+    const step = beat(w > PET_WIDTH ? 100 : 250) % span
     x = step <= room ? step : span - step
     feet = beat(250) % 2 === 0 ? PET_FEET.together : PET_FEET.apart
   } else if (mood === 'happy') {
