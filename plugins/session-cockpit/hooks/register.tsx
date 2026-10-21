@@ -709,7 +709,13 @@ export const register: Register = (on, options) => {
                 .filter(x => x !== null)
                 .flatMap((x, i) => (i === 0 ? [x] : ['  ', x]))}
             </Text>,
-            status.failing.length > 0 ? `· ${status.failing.slice(0, 2).join(', ')} failing` : 'checks',
+            status.failing.length === 0
+              ? 'checks'
+              : `· ${
+                  (status.failing[0] ?? '').length > 24
+                    ? `${(status.failing[0] ?? '').slice(0, 23)}…`
+                    : status.failing[0]
+                }${status.failing.length > 1 ? ` +${status.failing.length - 1}` : ''} failing`,
           ),
       !hasPr || status === null
         ? null
@@ -737,8 +743,9 @@ export const register: Register = (on, options) => {
 
     const showSecond = secondChips.length > 0 && e.props.maxRows >= 2
 
+    // A rounded frame sets the band apart from the transcript above it.
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} marginTop={1}>
         <Box flexDirection="row" columnGap={4} flexWrap="wrap">
           {firstChips}
         </Box>
