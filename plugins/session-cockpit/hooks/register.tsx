@@ -20,7 +20,9 @@ import {
   baseName,
   daysLeft,
   gradientBar,
+  headsUp,
   humanPrompt,
+  textOf,
   painter,
   THEMES,
   shimmer,
@@ -325,6 +327,8 @@ export const register: Register = (on, options) => {
   const configuredBudget = typeof options.budgetUsd === 'number' ? options.budgetUsd : 0
   const cacheMs = ttlMs(options.cacheTtl)
   const redrawTranscript = options.transcriptStyle !== 'claude'
+  const notifyHeadsUp = options.notifyHeadsUp !== false
+  let lastHeadsUp: string | null = null
   let cwd = ''
 
   on('session.start', async ($, e, next) => {
@@ -717,6 +721,22 @@ export const register: Register = (on, options) => {
   // ── Context, cost, cache, PR and agents, always above the prompt ───
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
+    // What the plugins beneath draw here (You should know's notes among them)
+    // stays, above the cockpit's frame.
+    let below: Awaited<ReturnType<typeof next>> | null = null
+    try {
+      below = await next(e)
+    } catch {
+      // Nothing beneath drew: the frame stands alone.
+    }
+    const belowText = below === null ? '' : textOf(below)
+    const note = headsUp(belowText)
+    if (note !== null && note !== lastHeadsUp && notifyHeadsUp) {
+      lastHeadsUp = note
+      void $.ui.notify(note, { title: 'You should know' }).catch(() => undefined)
+    } else if (note === null) {
+      lastHeadsUp = null
+    }
     await read($, tick)
     const now = await $.clock.now()
     const usage = await $.session.usage()
@@ -930,7 +950,7 @@ export const register: Register = (on, options) => {
     const showSecond = secondChips.length > 0 && e.props.maxRows >= 2
 
     // A rounded frame sets the band apart from the transcript above it.
-    return (
+    const frameBox = (
       <Box flexDirection="column" borderStyle="round" borderColor={paint('subtle')} paddingX={2} paddingY={1} rowGap={1} marginTop={1}>
         <Box flexDirection="row" columnGap={4} flexWrap="wrap">
           {firstChips}
@@ -940,6 +960,14 @@ export const register: Register = (on, options) => {
             {secondChips}
           </Box>
         ) : null}
+      </Box>
+    )
+    return belowText === '' ? (
+      frameBox
+    ) : (
+      <Box flexDirection="column">
+        {below}
+        {frameBox}
       </Box>
     )
   })

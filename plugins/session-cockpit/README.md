@@ -67,5 +67,5 @@ The mod hooks `tool.check` twice. Neither hook ever allows a call: each one only
 | `ui.render` (`Spinner`) | In the terminal, draws the turn's spinner in the theme's colors with a shimmer, the turn's time and cost so far | Redraws the spinner only; a state message (such as a retry) keeps Claude Code's own |
 | `ui.render` (`UserMessage`) | Draws your own typed prompts with a "You" label, time, duration and cost; other messages and the expanded view (ctrl+o) are Claude Code's | Redraws those rows only; the text is unchanged |
 | `ui.render` (`ToolUse`) | Draws each tool call as one row: status, tool icon, name, a short summary, duration; the expanded view (ctrl+o) is Claude Code's | Redraws the row only; results and dialogs are Claude Code's |
-| `ui.render` (`AbovePrompt`) | Draws the band above the prompt | Draws its own band only |
+| `ui.render` (`AbovePrompt`) | Draws the framed band above the prompt, under whatever the plugins beneath draw there (a You should know note stays); when that holds a new You should know note (`✦`), raises one system notification with its headline (`notifyHeadsUp`) | Adds its frame; what beneath drew is kept as drawn |
 | `ui.render` (`Pane`, `session-cockpit`) | Draws the mod's own pane | Draws its own pane only |

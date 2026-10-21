@@ -599,3 +599,32 @@ test('transcriptStyle claude leaves the transcript to Claude Code', { options: {
   expect((await prompt.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine row')
   await prompt.unmount()
 })
+
+test('a You should know note stays above the band and raises a notification', async ($, on) => {
+  const notes: string[] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 1 } },
+  }))
+  on('ui.notify', (_, e) => {
+    notes.push((e as unknown as { text: string }).text)
+    return { value: { isSent: true, channel: 'terminal_bell' } } as never
+  })
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>✦ Heads up · The retry count was changed from 3 to 5. 1: Learn more 2: Knew this already 0: Dismiss</Text>
+  })
+  await $.session.start({ cwd: '/repo/app', surface: 'terminal', isInteractive: true })
+
+  for (let i = 0; i < 2; i++) {
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
+    expect(await band.find({ type: 'Text', text: /Heads up/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /spent/ })).toBeDefined()
+    await band.unmount()
+  }
+  expect(notes).toEqual(['Heads up · The retry count was changed from 3 to 5.'])
+})

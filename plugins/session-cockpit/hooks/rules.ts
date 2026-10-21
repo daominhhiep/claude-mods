@@ -566,3 +566,21 @@ export function toolLabel(tool: string): string {
   const [, server, name] = tool.split('__')
   return `${server ?? ''} · ${name ?? ''}`
 }
+
+/** Every text a drawn tree holds, in order, joined by spaces. */
+export function textOf(node: unknown): string {
+  if (typeof node === 'string') return node
+  if (node === null || typeof node !== 'object') return ''
+  const n = node as { children?: unknown; props?: { label?: unknown } }
+  const own = typeof n.props?.label === 'string' ? n.props.label : ''
+  const kids = Array.isArray(n.children) ? n.children.map(textOf).join(' ') : ''
+  return `${own} ${kids}`.replace(/\s+/g, ' ').trim()
+}
+
+/** The headline of a You should know note in a drawn band, or null when there is none. */
+export function headsUp(text: string): string | null {
+  const at = text.indexOf('✦')
+  if (at < 0) return null
+  const line = text.slice(at + 1).replace(/\s+\d:\s.*$/, '').trim()
+  return line === '' ? null : line
+}

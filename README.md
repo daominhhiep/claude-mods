@@ -21,6 +21,8 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 - **Pull request**: shown once the session pushes or touches a PR: checks passed, failed and pending, failing check names, review state.
 - **Agents**: how many subagents are running.
 
+What other mods draw above the prompt, such as a You should know note, stays above the frame.
+
 **In the transcript**
 
 - The spinner shimmers in the theme's colors and shows the turn's time and cost so far.
@@ -73,6 +75,7 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 | --- | --- | --- |
 | `budgetUsd` | `0` (off) | Refuse tool calls once the session costs this much |
 | `cacheTtl` | `5m` | Prompt cache lifetime the clock counts down: `5m` or `1h`, as your plan or settings use |
+| `notifyHeadsUp` | `true` | Raise a system notification when Claude Code's You should know mod shows a new note above the prompt |
 | `transcriptStyle` | `cockpit` | `cockpit` redraws the spinner, your prompts and tool rows; `claude` leaves the transcript as Claude Code draws it |
 
 `/budget 20` sets a limit for the current session only, `/budget off` turns it off, `/budget` shows it.
