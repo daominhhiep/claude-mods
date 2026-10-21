@@ -18,6 +18,17 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 
 Values sit on solid colored pills, the context gauge spans the band in eighths of a cell with a light running along it while Claude works, and a light circles the frame (fast while working, slow while idle).
 
+Effects, each turned on or off in the Config tab:
+
+- **Fireworks** burst across the band for two seconds when a turn ends, with its time and cost.
+- **Flash** at 25, 50, 75 and 90% of the compact limit: the frame flashes and names the level.
+- **Color wave** rolls along the gauge while Claude works.
+- **Breathing frame** in the last minute before the cache goes cold.
+- **Typing**: each new reply from Claude appears letter by letter, in about a second.
+- **Light around the frame.**
+
+Under another mod's note (such as You should know), or when there is little room, the band folds to one row so nothing scrolls.
+
 - **Context**: how close the session is to auto-compact (or to the model's window when auto-compact is off), coloured by level (Clear, Cloudy, Showers, Storm, Compact soon).
 - **Cost**: what the session has spent, against your budget when you set one.
 - **Cache clock**: time left before the prompt cache goes cold after Claude's last reply.
@@ -31,7 +42,7 @@ What other mods draw above the prompt, such as a You should know note, stays abo
 **In the transcript**
 
 - The spinner shimmers in the theme's colors and shows the turn's time and cost so far.
-- Your prompts get a `▍ You` label with the time, how long the turn took and what it cost.
+- Your prompts get a `▍ You` label with the time, how long the turn took and what it cost, on your theme's message background.
 - Each tool call is one tidy row: status, tool icon, name, a short summary (project folder dropped, home as `~`), duration.
 
 Tool output stays Claude Code's own. Set `transcriptStyle` to `claude` to leave the whole transcript as Claude Code draws it.
@@ -49,6 +60,7 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 | Changes | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Activity | Every tool call: time, tool, duration, target, result |
 | Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
+| Config | Turn each effect on or off; kept for every session |
 
 **Guards**
 

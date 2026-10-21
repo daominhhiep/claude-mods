@@ -1,4 +1,4 @@
-export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme'
+export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config'
 
 export type PinnedSession = {
   id: string
@@ -123,12 +123,23 @@ declare module 'claude-code' {
       agents: AgentNode[]
       modelInfo: { model: string; effort: string | null } | null
       compactAt: number | null
+      compactWindow: { tokens: number; source: string } | null
       pins: PinnedSession[]
       pinScope: 'project' | 'all'
       sessionId: string | null
       keepDays: number
       frame: number
       theme: string
+      effects: {
+        fireworks: boolean
+        flash: boolean
+        wave: boolean
+        breathe: boolean
+        typing: boolean
+        ring: boolean
+      }
+      burst: { at: number; text: string } | null
+      flash: { at: number; percent: number } | null
     }
   }
 }

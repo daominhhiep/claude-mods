@@ -48,6 +48,13 @@ import {
   lineDiff,
   money,
   relativeTo,
+  BURST_MS,
+  DEFAULT_EFFECTS,
+  EFFECTS,
+  FLASH_MS,
+  burst,
+  effectsFrom,
+  waveColor,
   ringGlow,
   smoothBar,
   scale,
@@ -75,12 +82,21 @@ const prRef = atom({ plugin: 'session-cockpit', key: 'prRef' } as const, null)
 const agents = atom({ plugin: 'session-cockpit', key: 'agents' } as const, [])
 const modelInfo = atom({ plugin: 'session-cockpit', key: 'modelInfo' } as const, null)
 const compactAt = atom({ plugin: 'session-cockpit', key: 'compactAt' } as const, null)
+const compactWindow = atom({ plugin: 'session-cockpit', key: 'compactWindow' } as const, null)
 const pins = atom({ plugin: 'session-cockpit', key: 'pins' } as const, [])
 const pinScope = atom({ plugin: 'session-cockpit', key: 'pinScope' } as const, 'project')
 const sessionId = atom({ plugin: 'session-cockpit', key: 'sessionId' } as const, null)
 const keepDays = atom({ plugin: 'session-cockpit', key: 'keepDays' } as const, 30)
 const frame = atom({ plugin: 'session-cockpit', key: 'frame' } as const, 0)
 const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude')
+const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEFAULT_EFFECTS)
+const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
+const flashAt = atom({ plugin: 'session-cockpit', key: 'flash' } as const, null)
+
+// When the last reply that is typing out finishes; frames run fast until then.
+let typingUntil = 0
+// When each reply block was first drawn, so it types out once.
+const firstSeen = new Map<string, number>()
 
 const MAX_WEATHER = 60
 const MAX_BLASTS = 30
@@ -93,7 +109,11 @@ const BUDGET_WARN = 0.8
 const MAX_FILE_BYTES = 1_000_000
 const PREVIEW_LINES = 12
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
-const FRAME_MS = 250
+const FRAME_MS = 125
+const WAVE_EDGE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error']
+const EFFECTS_KEY = 'effects'
+const TYPE_CHAR_MS = 8
+const TYPE_MAX_MS = 1_200
 const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
 const WARN_DAYS = 7
@@ -106,6 +126,7 @@ const TABS: { id: CockpitTab; label: string; short: string; hotkey: string }[] =
   { id: 'replay', label: 'Changes', short: 'Diff', hotkey: '5' },
   { id: 'log', label: 'Activity', short: 'Log', hotkey: '6' },
   { id: 'theme', label: 'Theme', short: 'Theme', hotkey: '7' },
+  { id: 'config', label: 'Config', short: '⚙', hotkey: '8' },
 ]
 
 async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void> {
@@ -118,6 +139,16 @@ async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void
 }
 
 /** True while something moves: a prompt or agent runs, a guard waits, the cache is about to go cold. */
+/** True while an effect plays: frames then run at full speed. */
+async function isPlaying($: EngineInterface): Promise<boolean> {
+  const now = await $.clock.now()
+  if (now < typingUntil) return true
+  const b = await read($, burstAt)
+  if (b !== null && now - b.at < BURST_MS) return true
+  const fl = await read($, flashAt)
+  return fl !== null && now - fl.at < FLASH_MS
+}
+
 async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
   const list = await read($, costs)
   const last = list[list.length - 1]
@@ -142,7 +173,7 @@ function clockTime(ms: number): string {
 
 function compact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+  return n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : String(n)
 }
 
 async function readText($: EngineInterface, path: string): Promise<string | null> {
@@ -188,6 +219,13 @@ async function recordWeather($: EngineInterface, usage: SessionUsage): Promise<v
       ? (breakdown.autoCompactThreshold ?? null)
       : null
   await update($, compactAt, () => threshold)
+  // The window auto-compact works in (the model's, or a smaller one set in
+  // settings or the environment) and where that was set.
+  await update($, compactWindow, () =>
+    breakdown !== undefined && breakdown.isAutoCompactEnabled && breakdown.rawMaxTokens > 0
+      ? { tokens: breakdown.rawMaxTokens, source: breakdown.autocompactSource }
+      : null,
+  )
   if (tokens !== undefined) {
     const percent = contextPercent(tokens, window, threshold)
     const reading: WeatherReading = {
@@ -359,6 +397,8 @@ export const register: Register = (on, options) => {
       if (Array.isArray(saved)) await update($, pins, () => saved as PinnedSession[])
       const savedTheme = await $.store.get(THEME_KEY)
       if (typeof savedTheme === 'string') await update($, theme, () => savedTheme)
+      const savedEffects = await $.store.get(EFFECTS_KEY)
+      if (savedEffects !== undefined) await update($, effects, () => effectsFrom(savedEffects))
       const days = await $.settings.read({ key: 'cleanupPeriodDays' })
       if (typeof days === 'number' && days > 0) await update($, keepDays, () => days)
     } catch {
@@ -383,8 +423,11 @@ export const register: Register = (on, options) => {
     $.clock.every(FRAME_MS, () => {
       beats += 1
       void (async () => {
-        // Four frames a second while something moves; one a second at rest.
-        if ((await isBusy($, cacheMs)) || beats % 4 === 0) await update($, frame, n => n + 1)
+        // Eight frames a second while an effect plays, four while something
+        // moves, one a second at rest.
+        if (await isPlaying($)) await update($, frame, n => n + 1)
+        else if (beats % 2 === 0 && (await isBusy($, cacheMs))) await update($, frame, n => n + 1)
+        else if (beats % 8 === 0) await update($, frame, n => n + 1)
       })()
     })
 
@@ -574,6 +617,14 @@ export const register: Register = (on, options) => {
 
     const usage = await $.session.usage({ breakdown: 'summary' })
     await recordWeather($, usage)
+    const fx = await read($, effects)
+    const readings = await read($, weather)
+    const newest = readings.at(-1)
+    const before = readings.at(-2)
+    if (fx.flash && newest !== undefined && before !== undefined && levelOf(newest.percent).from > levelOf(before.percent).from) {
+      const at = await $.clock.now()
+      await update($, flashAt, () => ({ at, percent: newest.percent }))
+    }
     const here = await read($, sessionId)
     const pinned = await read($, pins)
     if (here !== null && pinned.some(p => p.id === here)) {
@@ -598,6 +649,15 @@ export const register: Register = (on, options) => {
           : p,
       ),
     )
+    if (fx.fireworks) {
+      const turn = (await read($, costs)).find(p => p.id === e.turnId)
+      const at = await $.clock.now()
+      const spent = turn?.usd ?? null
+      await update($, burstAt, () => ({
+        at,
+        text: `DONE ${duration(e.durationMs)}${spent === null ? '' : ` · ${money(spent)}`}`,
+      }))
+    }
 
     return result
   })
@@ -938,43 +998,88 @@ export const register: Register = (on, options) => {
           ),
     ].filter(x => x !== null)
 
-    // ── The frame, drawn by hand so its title sits on the border and a light
-    // runs round it (quick while Claude works, slow while idle).
+    // ── The frame, drawn by hand so its title sits on the border, with the
+    // effects the Config tab turns on.
+    const fx = await read($, effects)
+    const boom = await read($, burstAt)
+    const boomSince = boom === null ? Infinity : now - boom.at
+    const isBoom = fx.fireworks && boom !== null && boomSince < BURST_MS
+    const fl = await read($, flashAt)
+    const flSince = fl === null ? Infinity : now - fl.at
+    const isFlash = fx.flash && fl !== null && flSince < FLASH_MS
+    const flLevel = fl === null ? null : levelOf(fl.percent)
+
     const W = Math.max(40, e.props.bodyColumns)
     const inner = W - 4
+    const working2 = isRunning || e.props.isWorking
 
-    const rows: RenderChildren[] = [<Text wrap="truncate-end">{spaced(firstChips)}</Text>]
-    if (pctShown !== undefined && e.props.maxRows >= 5) {
+    const gaugeRow = () => {
+      if (pctShown === undefined) return null
       const g = smoothBar(pctShown, inner)
       const filled = g.runs.reduce((n, r) => n + Array.from(r.text).length, 0)
-      const at = isRunning && filled > 0 ? (f * 2) % (filled + 6) : -1
+      const at = working2 && filled > 0 ? (f * 2) % (filled + 6) : -1
+      const blink = isFlash && f % 2 === 0
       let i = 0
-      rows.push(
-        <Text wrap="truncate-end">
+      return (
+        <Text wrap="truncate">
           {g.runs.flatMap(r =>
             Array.from(r.text).map(ch => {
               const here = i++
               const near = Math.abs(here - at)
-              return (
-                <Text color={paint(near === 0 ? 'text' : near === 1 ? 'warning' : r.color)}>{ch}</Text>
-              )
+              const base = blink
+                ? 'text'
+                : fx.wave && working2
+                  ? waveColor(here, f)
+                  : r.color
+              return <Text color={paint(near === 0 ? 'text' : near === 1 ? 'warning' : base)}>{ch}</Text>
             }),
           )}
-          <Text color={paint('inactive')}>{g.rest}</Text>
-        </Text>,
+          <Text color={paint(blink && flLevel !== null ? flLevel.color : 'inactive')}>{g.rest}</Text>
+        </Text>
       )
+    }
+
+    const rows: RenderChildren[] = [<Text wrap="truncate-end">{spaced(firstChips)}</Text>]
+    if (e.props.maxRows >= 5) {
+      const g = gaugeRow()
+      if (g !== null) rows.push(g)
     }
     if (secondChips.length > 0 && e.props.maxRows >= 4) {
       rows.push(<Text wrap="truncate-end">{spaced(secondChips)}</Text>)
     }
     const R = rows.length
+    if (isBoom && boom !== null) {
+      // The firework takes the rows for its two seconds.
+      const grid = burst(boomSince, inner, R, Math.floor(boom.at / 1000))
+      rows.splice(
+        0,
+        R,
+        ...grid.map(line => {
+          const out: RenderChildren[] = []
+          let run = { ch: '', color: '' }
+          for (const c of line) {
+            if (c.color === run.color) run.ch += c.ch
+            else {
+              if (run.ch !== '') out.push(run.color === '' ? run.ch : <Text color={paint(run.color)} bold>{run.ch}</Text>)
+              run = { ...c }
+            }
+          }
+          if (run.ch !== '') out.push(run.color === '' ? run.ch : <Text color={paint(run.color)} bold>{run.ch}</Text>)
+          return <Text wrap="truncate">{out}</Text>
+        }),
+      )
+    }
+
     const P = 2 * W + 2 * R
-    const working2 = isRunning || e.props.isWorking
+    const cacheBreath =
+      fx.breathe && !working2 && left !== null && left > 0 && left <= 60_000 ? Math.floor(f / 2) % 2 === 0 : null
     const edge = (index: number) => {
+      if (isFlash && flLevel !== null) return f % 2 === 0 ? flLevel.color : 'text'
+      if (isBoom) return WAVE_EDGE[(Math.floor(index / 3) + f) % WAVE_EDGE.length]!
+      const base = cacheBreath === null ? (working2 ? 'subtle' : 'inactive') : cacheBreath ? 'warning' : 'subtle'
+      if (!fx.ring) return base
       const g = ringGlow(index, f, P)
-      return working2
-        ? g === 2 ? 'text' : g === 1 ? 'claude' : 'subtle'
-        : g === 2 ? 'suggestion' : g === 1 ? 'subtle' : 'inactive'
+      return working2 ? (g === 2 ? 'text' : g === 1 ? 'claude' : base) : g === 2 ? 'suggestion' : g === 1 ? 'subtle' : base
     }
     type Cell = { ch: string; color: string; bold?: boolean }
     const draw = (cells: Cell[]) => {
@@ -991,47 +1096,78 @@ export const register: Register = (on, options) => {
       return out
     }
 
-    const title: Cell[] = [
+    const titleCells: Cell[] = [
       { ch: '◆ ', color: 'claude', bold: true },
-      ...shimmer('COCKPIT', working2 ? f : null).map(r => ({
+      ...shimmer('COCKPIT', working2 || isBoom ? f : null).map(r => ({
         ch: r.text,
         color: r.glow === 2 ? 'text' : r.glow === 1 ? 'warning' : 'claude',
         bold: true,
       })),
     ]
-    const statusText =
-      last !== undefined && isRunning
-        ? `${spin(f)} running ${duration(now - last.startedAt)} ${sweep(f, 6)}`
-        : '● ready'
-    const statusCells: Cell[] = Array.from(statusText).map(ch => ({
-      ch,
-      color: isRunning ? 'warning' : 'success',
-      bold: isRunning,
-    }))
-    const head: Cell[] = [
-      ...Array.from('╭─ ').map(ch => ({ ch, color: '' })),
-      ...title,
-      { ch: ' ', color: '' },
-    ]
-    const tail: Cell[] = [{ ch: ' ', color: '' }, ...statusCells, ...Array.from(' ─╮').map(ch => ({ ch, color: '' }))]
-    const dashes = Math.max(1, W - head.length - tail.length)
-    const top = [...head, ...Array.from({ length: dashes }, () => ({ ch: '─', color: '' })), ...tail].map(
-      (c, col) => (c.color === '' ? { ...c, color: edge(col) } : c),
+    // The right end of the top border: a level banner, the firework's line,
+    // the running clock, or ready.
+    const topStatus: RenderChildren =
+      isFlash && flLevel !== null && fl !== null ? (
+        <Text backgroundColor={paint(f % 2 === 0 ? flLevel.color : 'text')} color={paint('inverseText')} bold>
+          {` ${flLevel.icon} ${flLevel.name.toUpperCase()} ${fl.percent}% `}
+        </Text>
+      ) : isBoom && boom !== null ? (
+        <Text color={paint(f % 2 === 0 ? 'claude' : 'warning')} bold>
+          {`✦ ${boom.text} ✦`}
+        </Text>
+      ) : last !== undefined && isRunning ? (
+        <Text color={paint('warning')} bold>
+          {`${spin(f)} running ${duration(now - last.startedAt)} ${sweep(f, 6)}`}
+        </Text>
+      ) : (
+        <Text color={paint('success')}>● ready</Text>
+      )
+    const head: Cell[] = [...Array.from('╭─ ').map((ch, col) => ({ ch, color: edge(col) })), ...titleCells]
+    const dashCells = (from: number, count: number, at: (col: number) => number) =>
+      Array.from({ length: Math.max(0, count) }, (_, k) => ({ ch: '─', color: edge(at(from + k)) }))
+    // The dashes stretch or shrink to the room the engine gives the line, so
+    // a glyph a terminal draws wide never pushes the corner off the end.
+    const top = (
+      <Box flexDirection="row">
+        <Box flexShrink={0}>
+          <Text>{draw(head)} </Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text wrap="truncate">{draw(dashCells(head.length + 1, W, col => col))}</Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Text>
+            {' '}
+            {topStatus}
+            <Text color={paint(edge(W - 2))}>{' ─'}</Text>
+            <Text color={paint(edge(W - 1))}>╮</Text>
+          </Text>
+        </Box>
+      </Box>
     )
-    const bottom = Array.from({ length: W }, (_, col) => ({
-      ch: col === 0 ? '╰' : col === W - 1 ? '╯' : '─',
-      color: edge(W + R + (W - 1 - col)),
-    }))
+    const bottom = (
+      <Box flexDirection="row">
+        <Box flexShrink={0}>
+          <Text color={paint(edge(2 * W + R - 1))}>╰</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text wrap="truncate">{draw(dashCells(1, W, col => W + R + (W - 1 - col)))}</Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Text color={paint(edge(W + R))}>╯</Text>
+        </Box>
+      </Box>
+    )
 
     const frameBox = (
       <Box flexDirection="column" marginTop={1}>
-        <Text wrap="truncate-end">{draw(top)}</Text>
+        {top}
         {rows.map((row, r) => (
           <Box key={`row-${r}`} flexDirection="row">
             <Box flexShrink={0}>
               <Text color={paint(edge(2 * W + R + (R - 1 - r)))}>{'│ '}</Text>
             </Box>
-            <Box width={inner} flexShrink={0}>
+            <Box flexGrow={1} flexShrink={1} overflow="hidden">
               {row}
             </Box>
             <Box flexShrink={0}>
@@ -1039,15 +1175,37 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         ))}
-        <Text wrap="truncate-end">{draw(bottom)}</Text>
+        {bottom}
       </Box>
     )
+    // Under another mod's note, or with little room, the band folds to one
+    // row so the note reads whole and nothing scrolls.
+    const isCompact = belowText !== '' || e.props.maxRows < 7
+    const compactBox = (
+      <Box flexDirection="row" marginTop={1}>
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text wrap="truncate-end">
+            <Text color={paint('claude')} bold>
+              {'◆ '}
+            </Text>
+            {spaced(firstChips.slice(0, 3))}
+          </Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Text>
+            {'  '}
+            {topStatus}
+          </Text>
+        </Box>
+      </Box>
+    )
+    const shown = isCompact ? compactBox : frameBox
     return belowText === '' ? (
-      frameBox
+      shown
     ) : (
       <Box flexDirection="column">
         {below}
-        {frameBox}
+        {shown}
       </Box>
     )
   })
@@ -1082,6 +1240,28 @@ export const register: Register = (on, options) => {
         )}
       </Text>
     )
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    // A new reply types out letter by letter; the markdown is Claude Code's.
+    if (e.props.isSummary === true || !(await read($, effects)).typing) return next(e)
+    const text = e.props.text
+    const now = await $.clock.now()
+    let first = firstSeen.get(e.requestId)
+    if (first === undefined) {
+      // Replies already on screen when the mod loads draw at once.
+      const working = (await read($, costs)).some(p => p.durationMs === null)
+      first = working ? now : 0
+      if (firstSeen.size > 500) firstSeen.clear()
+      firstSeen.set(e.requestId, first)
+    }
+    const total = Math.min(TYPE_MAX_MS, text.length * TYPE_CHAR_MS)
+    const since = now - first
+    if (since >= total) return next(e)
+    typingUntil = Math.max(typingUntil, first + total)
+    await read($, frame)
+    const n = Math.max(1, Math.floor((text.length * since) / total))
+    return next({ ...e, props: { ...e.props, text: `${text.slice(0, n)}▌` } })
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
@@ -1335,6 +1515,7 @@ export const register: Register = (on, options) => {
         // No live reading: the last turn's stands.
       }
       const limitAt = await read($, compactAt)
+      const cw = await read($, compactWindow)
       const liveTokens = live.tokens ?? last?.tokens
       if (last === undefined && live.tokens === undefined) {
         gauge = empty('☁', 'No reading yet.', "It appears after Claude's first reply.")
@@ -1380,9 +1561,19 @@ export const register: Register = (on, options) => {
               <Text color={paint('subtle')}>
                 {limitAt === null
                   ? ` of ${compact(live.window)} tokens`
-                  : ` of ${compact(limitAt)} before auto-compact · window ${compact(live.window)}`}
+                  : ` of ${compact(limitAt)} before auto-compact`}
               </Text>
             </Text>
+            {limitAt === null || cw === null ? null : (
+              <Text color={paint('subtle')} wrap="truncate-end">
+                {cw.tokens < live.window
+                  ? `Compact window ${compact(cw.tokens)}${
+                      cw.source === 'settings' ? ' (your setting)' : cw.source === 'env' ? ' (environment)' : ''
+                    } · model ${compact(live.window)}`
+                  : `Window ${compact(live.window)}`}
+                {cw.tokens > limitAt ? ` · ${compact(cw.tokens - limitAt)} kept free` : ''}
+              </Text>
+            )}
             {history.length < 2 ? null : (
               <Text wrap="truncate-end">
                 <Text color={paint('subtle')}>trend </Text>
@@ -1784,6 +1975,48 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
+    } else if (current === 'config') {
+      const fx = await read($, effects)
+      const save = async (next: typeof fx) => {
+        await update($, effects, () => next)
+        try {
+          await $.store.set(EFFECTS_KEY, next)
+        } catch {
+          $.ui.toast('Changed for this session only; it could not be saved for the next one.')
+        }
+      }
+      const allOn = EFFECTS.every(x => fx[x.id])
+      body = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Effects', 'saved for every session')}
+          {EFFECTS.map(x => (
+            <Box key={`fx-row-${x.id}`} flexDirection="column">
+              <Button key={`fx-${x.id}`} plain onPress={() => save({ ...fx, [x.id]: !fx[x.id] })}>
+                {fx[x.id] ? (
+                  <Text backgroundColor={paint('success')} color={paint('inverseText')} bold>
+                    {' ON  '}
+                  </Text>
+                ) : (
+                  <Text backgroundColor={paint('inactive')} color={paint('inverseText')}>
+                    {' OFF '}
+                  </Text>
+                )}
+                <Text bold={fx[x.id]} color={fx[x.id] ? undefined : paint('subtle')}>{`  ${x.label}`}</Text>
+              </Button>
+              <Text color={paint('inactive')} wrap="wrap">{`       ${x.hint}`}</Text>
+            </Box>
+          ))}
+          <Button
+            key="fx-all"
+            plain
+            onPress={() => save(Object.fromEntries(EFFECTS.map(x => [x.id, !allOn])) as typeof fx)}
+          >
+            <Text color={paint('claude')} bold>
+              {allOn ? '○ Turn all off' : '● Turn all on'}
+            </Text>
+          </Button>
+        </Box>
+      )
     } else if (current === 'theme') {
       const chosen = await read($, theme)
       const swatch = ['claude', 'success', 'warning', 'error', 'suggestion', 'permission']

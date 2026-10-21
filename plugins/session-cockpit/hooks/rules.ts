@@ -633,3 +633,102 @@ export function headsUp(text: string): string | null {
     .trim()
   return line === '' ? null : line
 }
+
+// ── Effects ──────────────────────────────────────────────────────────
+
+export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring'
+export type Effects = Record<EffectId, boolean>
+
+/** Each effect the Config tab turns on and off, in the order it lists them. */
+export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
+  { id: 'fireworks', label: 'Fireworks when a turn ends', hint: 'The band bursts for two seconds with the time and cost.' },
+  { id: 'flash', label: 'Flash at each context level', hint: 'At 25, 50, 75 and 90% the frame flashes and names the level.' },
+  { id: 'wave', label: 'Color wave on the gauge', hint: 'While Claude works, colors roll along the context bar.' },
+  { id: 'breathe', label: 'Breathing frame', hint: 'The frame glows slowly in the last minute before the cache goes cold.' },
+  { id: 'typing', label: "Type out Claude's replies", hint: 'Each new reply appears letter by letter, in about a second.' },
+  { id: 'ring', label: 'Light around the frame', hint: 'A light circles the band: quick while Claude works, slow at rest.' },
+]
+
+export const DEFAULT_EFFECTS: Effects = {
+  fireworks: true,
+  flash: true,
+  wave: true,
+  breathe: true,
+  typing: true,
+  ring: true,
+}
+
+/** Saved effects read back, any missing or broken entry at its default. */
+export function effectsFrom(saved: unknown): Effects {
+  const out = { ...DEFAULT_EFFECTS }
+  if (saved === null || typeof saved !== 'object') return out
+  for (const { id } of EFFECTS) {
+    const v = (saved as Record<string, unknown>)[id]
+    if (typeof v === 'boolean') out[id] = v
+  }
+  return out
+}
+
+export const BURST_MS = 2_200
+export const FLASH_MS = 2_500
+
+const WAVE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error']
+
+/** The color cell `index` of the gauge takes in the wave at `frame`. */
+export function waveColor(index: number, frame: number): string {
+  const band = Math.floor((index - frame * 2) / 4)
+  return WAVE[((band % WAVE.length) + WAVE.length) % WAVE.length]!
+}
+
+function noise(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
+  return x - Math.floor(x)
+}
+
+/**
+ * One frame of a firework `since` ms after it went off, in a field `width`
+ * cells by `rows`: each cell a glyph and a color, or a blank.
+ */
+export function burst(
+  since: number,
+  width: number,
+  rows: number,
+  seed: number,
+): { ch: string; color: string }[][] {
+  const w = Math.max(10, width)
+  const h = Math.max(1, rows)
+  const grid = Array.from({ length: h }, () => Array.from({ length: w }, () => ({ ch: ' ', color: '' })))
+  const p = Math.max(0, Math.min(1, since / BURST_MS))
+  const put = (x: number, y: number, ch: string, color: string) => {
+    const cx = Math.round(x)
+    const cy = Math.round(y)
+    if (cy < 0 || cy >= h || cx < 0 || cx >= w) return
+    grid[cy]![cx] = { ch, color }
+  }
+  const shells = 3
+  for (let s = 0; s < shells; s++) {
+    // Shells go off one after another across the band.
+    const start = s * 0.18
+    const q = (p - start) / (1 - start)
+    if (q <= 0) continue
+    const cx = w * (0.2 + 0.3 * s) + (noise(seed + s) - 0.5) * w * 0.1
+    const cy = (h - 1) / 2
+    if (q < 0.12) put(cx, cy, '✺', 'text')
+    const sparks = 22
+    for (let k = 0; k < sparks; k++) {
+      const angle = (2 * Math.PI * k) / sparks + noise(seed * 7 + s * 31 + k) * 0.4
+      const speed = 0.55 + noise(seed * 13 + s * 17 + k) * 0.6
+      const reach = q * speed
+      const x = cx + Math.cos(angle) * reach * w * 0.22
+      const y = cy + Math.sin(angle) * reach * (h / 2 + 0.6) + q * q * 0.8
+      const ch = q < 0.35 ? '✦' : q < 0.6 ? '✧' : q < 0.85 ? '·' : '.'
+      const color = q > 0.85 ? 'inactive' : WAVE[(k + s * 2) % WAVE.length]!
+      put(x, y, ch, color)
+      if (q > 0.25 && q < 0.8) {
+        // A short trail behind each spark.
+        put(cx + Math.cos(angle) * reach * w * 0.15, cy + Math.sin(angle) * reach * (h / 2), '·', 'subtle')
+      }
+    }
+  }
+  return grid
+}

@@ -16,6 +16,16 @@ const PANE = {
   },
 } as const
 
+/** Turns the timed effects off through the Config tab, so a band shows its rows. */
+async function quiet($: Parameters<Parameters<typeof test>[1]>[0]) {
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-config' })
+  await ui.press({ key: 'fx-fireworks' })
+  await ui.press({ key: 'fx-flash' })
+  await ui.press({ key: 'tab-weather' })
+  await ui.unmount()
+}
+
 test('detects destructive commands and leaves safe ones alone', async () => {
   expect(detectBlast('rm -rf build')?.kind).toBe('Delete files')
   expect(detectBlast('rm -rf build')?.preview?.length).toBe(2)
@@ -150,6 +160,7 @@ test('the changes tab replays an edit as a diff, and weather draws a reading', a
 })
 
 test('the band above the prompt shows session cost and time', async ($, on) => {
+  mock.store(on)
   let usd = 1.0
   let now = 1_700_000_000_000
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -204,6 +215,7 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     },
   })
 
+  await quiet($)
   const BAND = {
     plugin: 'session-cockpit',
     component: 'AbovePrompt',
@@ -215,7 +227,9 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     const texts = (await band.findAll({ type: 'Text' })).map(x => x.text)
     expect(texts).toContain(' ⚡ 80% ')
     expect(texts.some(t => t.includes('█') && t.includes('░'))).toBe(true)
-    expect(texts.some(t => t.startsWith('╭─ ') && t.endsWith(' ─╮'))).toBe(true)
+    expect(texts.some(t => t.startsWith('╭─ ') && t.includes('COCKPIT'))).toBe(true)
+    expect(texts.some(t => t.endsWith('╮'))).toBe(true)
+    expect(texts.some(t => t.includes('● ready'))).toBe(true)
     const row = texts.find(t => t.includes('spent')) ?? ''
     expect(row).toContain(' $1.42  spent')
     expect(row).toContain('◷ 5:00  ▰▰▰▰▰ cache')
@@ -362,7 +376,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
     await ui.press({ key: 'tab-agents' })
     expect((await ui.find({ type: 'Text', text: /code-reviewer/ }))?.text).toContain('1 tool')
     expect((await ui.find({ type: 'Text', text: /↳/ }))?.text).toContain('src/loader.go')
-    expect((await ui.find({ type: 'Text', text: /cached/ }))?.text).toContain('80.0k in · 3.0k out · 88% cached')
+    expect((await ui.find({ type: 'Text', text: /cached/ }))?.text).toContain('80k in · 3k out · 88% cached')
     await ui.unmount()
   }
 
@@ -404,6 +418,7 @@ test('the band shows the model and effort of the latest request', async ($, on) 
 })
 
 test('context is measured against the auto-compact threshold', async ($, on) => {
+  mock.store(on)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -418,7 +433,7 @@ test('context is measured against the auto-compact threshold', async ($, on) => 
         tokens: 250_000,
         window: 1_000_000,
         percent: 25,
-        breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 270_000 } as never,
+        breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 270_000, rawMaxTokens: 300_000, autocompactSource: 'settings' } as never,
       },
       rateLimits: [],
       cost: { usd: 1 },
@@ -427,6 +442,7 @@ test('context is measured against the auto-compact threshold', async ($, on) => 
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+  await quiet($)
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
@@ -435,8 +451,9 @@ test('context is measured against the auto-compact threshold', async ($, on) => 
 
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /^93%$/ })).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /Compact window/ }))?.text).toBe('Compact window 300k (your setting) · model 1M · 30k kept free')
     expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain(
-      '250.0k of 270.0k before auto-compact · window 1M',
+      '250k of 270k before auto-compact',
     )
     await ui.unmount()
   }
@@ -674,7 +691,7 @@ test('the pane and the band read the same live context mid-turn', async ($, on) 
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^83%$/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain('222.0k of 267.0k')
+  expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain('222k of 267k')
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
   expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('83%')
@@ -705,4 +722,93 @@ test('where no system notification can be raised, the note shows as a toast', as
   await band.unmount()
   await new Promise(r => setTimeout(r, 20))
   expect(toasts).toEqual(['✦ Heads up · VND totals are estimates from the system rate.'])
+})
+
+test('effects burst, flash, type out and fold away, and the Config tab turns them off', async ($, on) => {
+  mock.store(on)
+  const state = { now: 1_700_000_000_000, tokens: 50_000 }
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    const text = (e.props as { text?: unknown }).text
+    return <Text>{typeof text === 'string' ? text : ''}</Text>
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: 1_700_000_000_000,
+      context: {
+        tokens: state.tokens,
+        window: 1_000_000,
+        percent: 5,
+        breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 200_000 } as never,
+      },
+      rateLimits: [],
+      cost: { usd: 1 },
+    },
+  }))
+  const BAND = {
+    plugin: 'session-cockpit',
+    component: 'AbovePrompt',
+    requestId: 'above-prompt',
+    surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, view: {} },
+  } as const
+  const bandTexts = async () => {
+    const band = await $.ui.mount(BAND as never)
+    const texts = (await band.findAll({ type: 'Text' })).map(x => x.text)
+    await band.unmount()
+    return texts
+  }
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'one', turnId: 't1' })
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 4000, isAborted: false, reason: 'answer' })
+  // 25% → 30% of the limit: no level crossed yet, only the firework.
+  let texts = await bandTexts()
+  expect(texts.some(t => t.includes('✦ DONE 4s'))).toBe(true)
+  state.now += 3_000
+  texts = await bandTexts()
+  expect(texts.some(t => t.includes('DONE'))).toBe(false)
+
+  // Crossing into the next level flashes its name on the frame.
+  state.tokens = 110_000
+  await $.turn.start({ text: 'two', turnId: 't2' })
+  await $.turn.complete({ turnId: 't2', answer: '', durationMs: 2000, isAborted: false, reason: 'answer' })
+  texts = await bandTexts()
+  expect(texts.some(t => t.includes('SHOWERS 55%'))).toBe(true)
+  state.now += 3_000
+
+  // A reply that arrives while Claude works types out, then draws whole.
+  await $.turn.start({ text: 'three', turnId: 't3' })
+  const reply = {
+    plugin: 'session-cockpit',
+    component: 'AssistantMessage',
+    requestId: 'r1',
+    surface: 'terminal',
+    props: { text: 'Hello there, this is a reply.', isFirstOfReply: true },
+  } as const
+  let msg = await $.ui.mount(reply as never)
+  expect(JSON.stringify(await msg.drawn())).toContain('▌')
+  await msg.unmount()
+  state.now += 2_000
+  msg = await $.ui.mount(reply as never)
+  expect(JSON.stringify(await msg.drawn())).not.toContain('▌')
+  await msg.unmount()
+
+  // The Config tab turns an effect off, and the choice is saved.
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-config' })
+  expect(await ui.find({ type: 'Text', text: /Fireworks when a turn ends/ })).toBeDefined()
+  await ui.press({ key: 'fx-fireworks' })
+  expect(await ui.find({ type: 'Text', text: /^ OFF $/ })).toBeDefined()
+  await ui.unmount()
+  await $.turn.complete({ turnId: 't3', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+  texts = await bandTexts()
+  expect(texts.some(t => t.includes('DONE'))).toBe(false)
 })
