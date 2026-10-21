@@ -10,13 +10,14 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 
 ```
 ⚡ 81% ████████▏ context    $2.54 / $10 spent    ◷ 3:12 ▰▰▰▱▱ cache    47m session · 5m working
-#101 Add an approval gate    ✓ 2  ✗ 1  ◌ 1 · lint failing    ○ waiting for review    ◌ 2 agents · Explore +1
+◆ opus-5-5 · high effort    #101 Add an approval gate    ✓ 2  ✗ 1 · lint failing    ◌ 2 agents · Explore +1
 ```
 
 - **Context**: how full the context window is, coloured by level (Clear, Cloudy, Showers, Storm, Compact soon).
 - **Cost**: what the session has spent, against your budget when you set one.
 - **Cache clock**: time left before the prompt cache goes cold after Claude's last reply.
 - **Session time**: how long the session has been open and how long Claude actually worked.
+- **Model and effort**: the model and effort level of the latest request.
 - **Pull request**: shown once the session pushes or touches a PR: checks passed, failed and pending, failing check names, review state.
 - **Agents**: how many subagents are running.
 

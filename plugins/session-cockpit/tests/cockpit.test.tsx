@@ -367,3 +367,34 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
   expect((await cold.find({ type: 'Text', text: /cache/ }))?.text).toBe('◷ cold cache')
   await cold.unmount()
 })
+
+test('the band shows the model and effort of the latest request', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
+  })
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+
+  const before = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
+  expect((await before.find({ type: 'Text', text: /opus/ }))?.text).toBe('◆ opus-5-5 model')
+  await before.unmount()
+
+  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'xhigh', messageCount: 1 } as never)
+  for await (const _ of stream as AsyncIterable<unknown>) {
+    // drain
+  }
+
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const band = await $.ui.mount({ ...BAND, surface } as never)
+    expect((await band.find({ type: 'Text', text: /opus/ }))?.text).toBe('◆ opus-5-5 · xhigh effort')
+    await band.unmount()
+  }
+})

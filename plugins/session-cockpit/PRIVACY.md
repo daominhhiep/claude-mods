@@ -14,7 +14,7 @@ To draw the band above the prompt and the `/cockpit` pane, the mod reads, from t
 - each tool call's tool name, a short summary of its input (a command, a file path, a search pattern, a URL) and whether it succeeded;
 - up to the first 20,000 characters of each tool result, only to look for a GitHub pull request link;
 - the contents of a file Claude edits, before and after the edit, to draw a diff (files over 1 MB are skipped);
-- the session's token counts, cost, context usage and list of subagents, as Claude Code reports them;
+- the session's model, the model and effort of each request, token counts, cost, context usage and list of subagents, as Claude Code reports them;
 - the output of the local programs listed under "Programs it starts" in the [README](README.md): the current git branch, the files and size a delete would remove, the changes a `git reset --hard` would lose, the files a `git clean` would remove.
 
 Any of these can contain personal data that happens to be in your prompts, files or command output, such as names, email addresses or customer records. The mod does not look for personal data, does not extract it and does not treat it differently from any other text.

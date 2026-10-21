@@ -59,6 +59,7 @@ The mod hooks `tool.check` twice. Neither hook ever allows a call: each one only
 | `tool.check` | Budget guard, above | Can refuse a tool call |
 | `tool.check` (Bash) | Destructive-command guard, above | Can make a call ask first |
 | `agent.spawn` | After a subagent has started, reads the agent list to draw the tree | No: the spawn goes on exactly as asked, and its result is returned unchanged |
+| `turn.step` | Reads the model and effort of each main-loop request as it goes out, for the band | No: the request is sent exactly as the engine made it |
 | `turn.start` | Notes when a prompt starts and the session cost at that moment | No |
 | `turn.complete` | Records the turn's time, cost and tokens, the context reading and the cache clock | No |
 | `tool.call` | Logs each call for the Activity tab, reads an edited file before and after for the Changes tab, looks for pull request links | No: every call runs as asked and its result is returned unchanged |

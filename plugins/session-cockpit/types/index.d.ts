@@ -110,6 +110,7 @@ declare module 'claude-code' {
       pr: PrStatus | null
       prRef: string | null
       agents: AgentNode[]
+      modelInfo: { model: string; effort: string | null } | null
     }
   }
 }

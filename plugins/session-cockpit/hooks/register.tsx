@@ -51,6 +51,7 @@ const budgetWarned = atom({ plugin: 'session-cockpit', key: 'budgetWarned' } as 
 const pr = atom({ plugin: 'session-cockpit', key: 'pr' } as const, null)
 const prRef = atom({ plugin: 'session-cockpit', key: 'prRef' } as const, null)
 const agents = atom({ plugin: 'session-cockpit', key: 'agents' } as const, [])
+const modelInfo = atom({ plugin: 'session-cockpit', key: 'modelInfo' } as const, null)
 
 const MAX_WEATHER = 60
 const MAX_BLASTS = 30
@@ -269,6 +270,12 @@ export const register: Register = (on, options) => {
       argumentHint: '[amount|off]',
     })
     void $.ui.open({ id: PANE, title: TITLE })
+    try {
+      const model = await $.session.model()
+      await update($, modelInfo, old => old ?? { model, effort: null })
+    } catch {
+      // No model reading yet: the first request fills it in.
+    }
     // Keeps the clocks above the prompt current.
     $.clock.every(TICK_MS, () => {
       void update($, tick, n => n + 1)
@@ -303,6 +310,16 @@ export const register: Register = (on, options) => {
           ? 'Budget off for this session.'
           : `Budget set to $${parsed.toFixed(2)} for this session (spent ${money(spent)}).`,
     }
+  })
+
+  // ── Model and effort of the main loop's requests ───────────────────
+  // Reads the request's model and effort as it goes out; changes nothing.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) {
+      const effort = e.effort === undefined ? null : String(e.effort)
+      await update($, modelInfo, () => ({ model: e.model, effort }))
+    }
+    return yield* next(e)
   })
 
   // ── Budget guard ───────────────────────────────────────────────────
@@ -651,7 +668,23 @@ export const register: Register = (on, options) => {
     ].filter(x => x !== null)
 
     const hasPr = status !== null && status.number !== null
+    const info = await read($, modelInfo)
     const secondChips = [
+      info === null
+        ? null
+        : chip(
+            'model',
+            <Text>
+              <Text color="claude">◆</Text> <Text bold>{info.model.replace(/^claude-/, '')}</Text>
+              {info.effort === null ? null : (
+                <Text>
+                  <Text color="inactive"> · </Text>
+                  <Text color="suggestion">{info.effort}</Text>
+                </Text>
+              )}
+            </Text>,
+            info.effort === null ? 'model' : 'effort',
+          ),
       !hasPr || status === null
         ? null
         : chip(
