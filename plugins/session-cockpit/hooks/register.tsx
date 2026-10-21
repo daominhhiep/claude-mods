@@ -424,16 +424,14 @@ export const register: Register = (on, options) => {
     $.clock.every(FRAME_MS, () => {
       beats += 1
       void (async () => {
-        // Ten frames a second while an effect plays, five while something
-        // moves, one a second at rest. The pane, heavier to draw, moves at
-        // two a second at most.
-        let moved = false
-        if (await isPlaying($)) moved = true
-        else if (beats % 2 === 0 && (await isBusy($, cacheMs))) moved = true
-        else if (beats % 10 === 0) moved = true
-        if (!moved) return
+        // Ten frames a second while something moves, two at rest. Motion is
+        // placed by the clock, not by the frame count, so a change of pace
+        // never changes its speed. The pane, heavier to draw, moves at two a
+        // second at most, one at rest.
+        const moving = (await isPlaying($)) || (await isBusy($, cacheMs))
+        if (!moving && beats % 5 !== 0) return
         await update($, frame, n => n + 1)
-        if (beats % 5 === 0) await update($, paneFrame, n => n + 1)
+        if (beats % (moving ? 5 : 10) === 0) await update($, paneFrame, n => n + 1)
       })()
     })
 
@@ -844,7 +842,10 @@ export const register: Register = (on, options) => {
           ? tween(prevR.percent, lastR.percent, now - lastR.at)
           : pct
     const level = pctShown === undefined ? null : levelOf(pctShown)
-    const f = await read($, frame)
+    // The frame atom only asks for the redraw; where things are comes from the clock.
+    await read($, frame)
+    const f = Math.floor(now / FRAME_MS)
+    const blink = (ms: number) => Math.floor(now / ms) % 2 === 0
     const warmAt = await read($, cacheAt)
     const left = warmAt === null ? null : warmAt + cacheMs - now
     const status = await read($, pr)
@@ -882,7 +883,7 @@ export const register: Register = (on, options) => {
       left === null || left <= 0
         ? 'inactive'
         : left <= 60_000
-          ? f % 2 === 0
+          ? blink(500)
             ? 'warning'
             : 'error'
           : 'success'
@@ -1023,8 +1024,8 @@ export const register: Register = (on, options) => {
       if (pctShown === undefined) return null
       const g = smoothBar(pctShown, inner)
       const filled = g.runs.reduce((n, r) => n + Array.from(r.text).length, 0)
-      const at = working2 && filled > 0 ? (f * 2) % (filled + 6) : -1
-      const blink = isFlash && f % 2 === 0
+      const at = working2 && filled > 0 ? f % (filled + 6) : -1
+      const lit = isFlash && blink(250)
       // Cells of one color are drawn as one run: a few nodes, not one per cell.
       const runs: { text: string; color: string }[] = []
       let i = 0
@@ -1032,7 +1033,7 @@ export const register: Register = (on, options) => {
         for (const ch of Array.from(r.text)) {
           const here = i++
           const near = Math.abs(here - at)
-          const base = blink ? 'text' : fx.wave && working2 ? waveColor(here, f) : r.color
+          const base = lit ? 'text' : fx.wave && working2 ? waveColor(here, f) : r.color
           const color = near === 0 ? 'text' : near === 1 ? 'warning' : base
           const lastRun = runs[runs.length - 1]
           if (lastRun !== undefined && lastRun.color === color) lastRun.text += ch
@@ -1044,7 +1045,7 @@ export const register: Register = (on, options) => {
           {runs.map(r => (
             <Text color={paint(r.color)}>{r.text}</Text>
           ))}
-          <Text color={paint(blink && flLevel !== null ? flLevel.color : 'inactive')}>{g.rest}</Text>
+          <Text color={paint(lit && flLevel !== null ? flLevel.color : 'inactive')}>{g.rest}</Text>
         </Text>
       )
     }
@@ -1082,13 +1083,15 @@ export const register: Register = (on, options) => {
 
     const P = 2 * W + 2 * R
     const cacheBreath =
-      fx.breathe && !working2 && left !== null && left > 0 && left <= 60_000 ? Math.floor(f / 2) % 2 === 0 : null
+      fx.breathe && !working2 && left !== null && left > 0 && left <= 60_000 ? blink(800) : null
+    // The ring's light: two cells a frame while Claude works, one every half second at rest.
+    const ringHead = working2 ? f * 2 : Math.floor(now / 500)
     const edge = (index: number) => {
-      if (isFlash && flLevel !== null) return f % 2 === 0 ? flLevel.color : 'text'
+      if (isFlash && flLevel !== null) return blink(250) ? flLevel.color : 'text'
       if (isBoom) return WAVE_EDGE[(Math.floor(index / 3) + f) % WAVE_EDGE.length]!
       const base = cacheBreath === null ? (working2 ? 'subtle' : 'inactive') : cacheBreath ? 'warning' : 'subtle'
       if (!fx.ring) return base
-      const g = ringGlow(index, f, P)
+      const g = ringGlow(index, ringHead, P)
       return working2 ? (g === 2 ? 'text' : g === 1 ? 'claude' : base) : g === 2 ? 'suggestion' : g === 1 ? 'subtle' : base
     }
     type Cell = { ch: string; color: string; bold?: boolean }
@@ -1118,16 +1121,16 @@ export const register: Register = (on, options) => {
     // the running clock, or ready.
     const topStatus: RenderChildren =
       isFlash && flLevel !== null && fl !== null ? (
-        <Text backgroundColor={paint(f % 2 === 0 ? flLevel.color : 'text')} color={paint('inverseText')} bold>
+        <Text backgroundColor={paint(blink(250) ? flLevel.color : 'text')} color={paint('inverseText')} bold>
           {` ${flLevel.icon} ${flLevel.name.toUpperCase()} ${fl.percent}% `}
         </Text>
       ) : isBoom && boom !== null ? (
-        <Text color={paint(f % 2 === 0 ? 'claude' : 'warning')} bold>
+        <Text color={paint(blink(250) ? 'claude' : 'warning')} bold>
           {`✦ ${boom.text} ✦`}
         </Text>
       ) : last !== undefined && isRunning ? (
         <Text color={paint('warning')} bold>
-          {`${spin(f)} running ${duration(now - last.startedAt)} ${sweep(f, 6)}`}
+          {`${spin(f)} running ${duration(now - last.startedAt)} ${sweep(Math.floor(f / 2), 6)}`}
         </Text>
       ) : (
         <Text color={paint('success')}>● ready</Text>
@@ -1136,14 +1139,16 @@ export const register: Register = (on, options) => {
     const dashCells = (from: number, count: number, at: (col: number) => number) =>
       Array.from({ length: Math.max(0, count) }, (_, k) => ({ ch: '─', color: edge(at(from + k)) }))
     // The dashes stretch or shrink to the room the engine gives the line, so
-    // a glyph a terminal draws wide never pushes the corner off the end.
+    // a glyph a terminal draws wide never pushes the corner off the end. They
+    // wrap into a box one row high and the rest is clipped: a truncating Text
+    // would end them with an ellipsis that jumps about as the status changes.
     const top = (
       <Box flexDirection="row">
         <Box flexShrink={0}>
           <Text>{draw(head)} </Text>
         </Box>
-        <Box flexGrow={1} flexShrink={1} overflow="hidden">
-          <Text wrap="truncate">{draw(dashCells(head.length + 1, W, col => col))}</Text>
+        <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+          <Text>{draw(dashCells(head.length + 1, W, col => col))}</Text>
         </Box>
         <Box flexShrink={0}>
           <Text>
@@ -1160,8 +1165,8 @@ export const register: Register = (on, options) => {
         <Box flexShrink={0}>
           <Text color={paint(edge(2 * W + R - 1))}>╰</Text>
         </Box>
-        <Box flexGrow={1} flexShrink={1} overflow="hidden">
-          <Text wrap="truncate">{draw(dashCells(1, W, col => W + R + (W - 1 - col)))}</Text>
+        <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+          <Text>{draw(dashCells(1, W, col => W + R + (W - 1 - col)))}</Text>
         </Box>
         <Box flexShrink={0}>
           <Text color={paint(edge(W + R))}>╯</Text>
@@ -1224,8 +1229,9 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!redrawTranscript || e.surface !== 'terminal' || e.props.message !== null) return next(e)
     const paint = painter(await read($, theme))
-    const f = await read($, frame)
+    await read($, frame)
     const now = await $.clock.now()
+    const f = Math.floor(now / FRAME_MS)
     const last = (await read($, costs)).at(-1)
     const running = last !== undefined && last.durationMs === null ? last : null
     const usd = (await $.session.usage()).cost?.usd
@@ -1245,7 +1251,7 @@ export const register: Register = (on, options) => {
           <Text color={paint('inactive')}>
             {`  ${duration(now - running.startedAt)}`}
             {spent === null ? '' : ` · ${money(spent)}`}
-            {`  ${sweep(f, 5)}`}
+            {`  ${sweep(Math.floor(f / 2), 5)}`}
           </Text>
         )}
       </Text>
@@ -1316,7 +1322,11 @@ export const register: Register = (on, options) => {
     const paint = painter(await read($, theme))
     // Only a running row follows the frame; finished rows stay still and are
     // not redrawn on every tick.
-    const f = e.props.isRunning ? await read($, frame) : 0
+    let f = 0
+    if (e.props.isRunning) {
+      await read($, frame)
+      f = Math.floor((await $.clock.now()) / FRAME_MS)
+    }
     const call = (await read($, calls)).find(c => c.id === e.requestId)
     const input =
       typeof e.props.input === 'object' && e.props.input !== null ? (e.props.input as Record<string, unknown>) : {}
