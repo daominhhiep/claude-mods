@@ -745,7 +745,7 @@ export const register: Register = (on, options) => {
 
     // A rounded frame sets the band apart from the transcript above it.
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} marginTop={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={2} paddingY={1} rowGap={1} marginTop={1}>
         <Box flexDirection="row" columnGap={4} flexWrap="wrap">
           {firstChips}
         </Box>
