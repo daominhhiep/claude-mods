@@ -982,7 +982,12 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(st.activeDays).toBe(7)
   expect(st.streak).toBe(7)
   expect(st.weekDays).toBe(7)
-  expect(st.hearts).toBe(5)
+  // Seven days of use make three and a half hearts; pats on three of them fill the rest.
+  expect(st.bond).toBe(4)
+  let petted = life
+  for (const d of [4, 5, 6]) petted = patPet(petted, start + d * day).life
+  expect(petStats(petted, now).patWeekDays).toBe(3)
+  expect(petStats(petted, now).bond).toBe(5)
   expect(st.level).toBeGreaterThan(1)
   expect(earned).toContain('streak-3')
   expect(earned).toContain('streak-7')

@@ -944,8 +944,13 @@ export type PetStats = {
   levelFrom: number
   levelTo: number
   hunger: PetHunger
-  /** 0 to 5, from how many of the last seven days had a turn. */
-  hearts: number
+  /** Days with a pat among the last seven, today included. */
+  patWeekDays: number
+  /**
+   * 0 to 5: how close you two are. A point for each of the last seven days
+   * with a turn and each with a pat; two points a heart.
+   */
+  bond: number
   /** The next stage and how many more active days it needs, or null at the last. */
   next: { name: string; days: number } | null
 }
@@ -968,19 +973,26 @@ export function newPetLife(now: number): PetLife {
     achievements: {},
     pats: 0,
     lastPattedAt: null,
+    patDays: {},
   }
 }
 
 /** A saved pet read back; a missing or broken one starts over as a new egg. */
-export function petLifeFrom(saved: unknown, now: number): PetLife {
-  if (saved === null || typeof saved !== 'object') return newPetLife(now)
-  const v = saved as Record<string, unknown>
+/** A saved day-to-count record, keeping only well-formed days. */
+function dayCounts(saved: unknown): Record<string, number> {
   const days: Record<string, number> = {}
-  if (v.days !== null && typeof v.days === 'object') {
-    for (const [k, n] of Object.entries(v.days as Record<string, unknown>)) {
+  if (saved !== null && typeof saved === 'object') {
+    for (const [k, n] of Object.entries(saved as Record<string, unknown>)) {
       if (/^\d{4}-\d{2}-\d{2}$/.test(k) && typeof n === 'number' && n > 0) days[k] = Math.floor(n)
     }
   }
+  return days
+}
+
+export function petLifeFrom(saved: unknown, now: number): PetLife {
+  if (saved === null || typeof saved !== 'object') return newPetLife(now)
+  const v = saved as Record<string, unknown>
+  const days = dayCounts(v.days)
   return {
     name: typeof v.name === 'string' && v.name.trim() !== '' ? v.name.trim().slice(0, 24) : 'Clawd',
     bornAt: typeof v.bornAt === 'number' ? v.bornAt : now,
@@ -995,6 +1007,7 @@ export function petLifeFrom(saved: unknown, now: number): PetLife {
     ) as Record<string, number>,
     pats: typeof v.pats === 'number' && v.pats >= 0 ? Math.floor(v.pats) : 0,
     lastPattedAt: typeof v.lastPattedAt === 'number' ? v.lastPattedAt : null,
+    patDays: dayCounts(v.patDays),
   }
 }
 
@@ -1021,7 +1034,11 @@ export function petStats(life: PetLife, now: number): PetStats {
   let streak = 0
   for (let i = has(0) ? 0 : 1; has(i); i++) streak++
   let weekDays = 0
-  for (let i = 0; i < 7; i++) if (has(i)) weekDays++
+  let patWeekDays = 0
+  for (let i = 0; i < 7; i++) {
+    if (has(i)) weekDays++
+    if ((life.patDays[dayKey(now - i * DAY_MS)] ?? 0) > 0) patWeekDays++
+  }
 
   // Each day looked after: 20, and 5 a turn up to the day's cap; a streak adds 10 a day.
   const xp =
@@ -1053,12 +1070,13 @@ export function petStats(life: PetLife, now: number): PetStats {
     activeDays,
     streak,
     weekDays,
+    patWeekDays,
     xp,
     level,
     levelFrom: levelXp(level),
     levelTo: levelXp(level + 1),
     hunger,
-    hearts: Math.min(5, Math.ceil((weekDays * 5) / 7)),
+    bond: Math.min(5, Math.ceil((weekDays + patWeekDays) / 2)),
     next,
   }
 }
@@ -1148,7 +1166,11 @@ export function feedAndAward(life: PetLife, now: number): { life: PetLife; earne
 
 /** The pet after a pat at `now`, with the petting achievements it newly earned. */
 export function patPet(life: PetLife, now: number): { life: PetLife; earned: PetAchievement[] } {
-  return award(life, { ...life, pats: life.pats + 1, lastPattedAt: now }, now, true)
+  const today = dayKey(now)
+  const patDays = { ...life.patDays, [today]: (life.patDays[today] ?? 0) + 1 }
+  const keys = Object.keys(patDays).sort()
+  for (const k of keys.slice(0, Math.max(0, keys.length - 30))) delete patDays[k]
+  return award(life, { ...life, pats: life.pats + 1, lastPattedAt: now, patDays }, now, true)
 }
 
 function award(life: PetLife, after: PetLife, now: number, byPat: boolean): { life: PetLife; earned: PetAchievement[] } {

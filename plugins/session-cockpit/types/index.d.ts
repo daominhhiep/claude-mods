@@ -17,6 +17,8 @@ export type PetLife = {
   /** Times it has been petted, and when last. */
   pats: number
   lastPattedAt: number | null
+  /** Local calendar day to the pats that day, the last few weeks only. */
+  patDays: Record<string, number>
 }
 
 export type PinnedSession = {

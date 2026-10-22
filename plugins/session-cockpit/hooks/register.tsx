@@ -2366,9 +2366,9 @@ export const register: Register = (on, options) => {
               <Text color={paint(hungerLook[st.hunger].color)} bold>
                 {hungerLook[st.hunger].label}
               </Text>
-              <Text color={paint('inactive')}>{'   Mood '}</Text>
-              <Text color={paint('error')}>{'●'.repeat(st.hearts)}</Text>
-              <Text color={paint('inactive')}>{'○'.repeat(5 - st.hearts)}</Text>
+              <Text color={paint('inactive')}>{'   Bond '}</Text>
+              <Text color={paint('error')}>{'●'.repeat(st.bond)}</Text>
+              <Text color={paint('inactive')}>{'○'.repeat(5 - st.bond)}</Text>
             </Text>
             <Text wrap="wrap">
               <Text color={paint('inactive')}>Feeling </Text>
