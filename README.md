@@ -10,7 +10,7 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 
 ```
 ╭─ ◆ COCKPIT ───────────────────────────────────────────────── ⠋ running 1m 03s ▱▰▱▱▱▱ ─╮
-│  ⚡ 81%  of compact limit    $2.54  / $10 spent    ◷ 3:12  ▰▰▰▱▱ cache   47m session · 5m working │
+│  ⚡ 81%  context used    $2.54  / $10 spent    ◷ 3:12  ▰▰▰▱▱ stays warm   47m session · 5m working │
 │ ████████████████████████████████████████████████████████████▌░░░░░░░░░░░░░░░░░░░░░ │
 │ ◆ opus-5-5 · high effort   ⑂ #101 Add an approval gate   ✓ 2  ✗ 1 · lint failing   ⠋ 2 agents │
 ╰─────────────────────────────────────────────────────────────────────────────────────╯
@@ -26,13 +26,14 @@ Effects, each turned on or off in Settings · Effects:
 - **Breathing frame** in the last minute before the cache goes cold.
 - **Typing**: each new reply from Claude appears letter by letter, in about a second.
 - **Light around the frame.**
-- **Claude pet** sits on the band's top border, beside the title, its feet on the line, so the rows below keep their full width; the corner under the last row names it with its level and feeling. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare.
+- **Claude pet** sits on the band's top border, beside the title, its feet on the line, so the rows below keep their full width; the corner under the last row names it with its level and feeling. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard; while the pane shows its Pet or Play tab it stays in the yard, so it is not drawn twice); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare.
+- **Light mode** (off by default, Settings · Effects): half the frames while Claude works. Measured in a 160×50 terminal, it took Claude Code's CPU from about 31% to 23% while working and nearly halved what is written to the terminal. Turn all leaves it as it is.
 
 Under another mod's note (such as You should know), or when there is little room, the band folds to one row so nothing scrolls.
 
 - **Context**: how close the session is to auto-compact (or to the model's window when auto-compact is off), coloured by level (Clear, Cloudy, Showers, Storm, Compact soon).
 - **Cost**: what the session has spent, against your budget when you set one.
-- **Cache clock**: time left before the prompt cache goes cold after Claude's last reply.
+- **Cache clock** ("stays warm"): time left before the prompt cache goes cold after Claude's last reply; once cold it says the next reply is slower.
 - **Session time**: how long the session has been open and how long Claude actually worked.
 - **Model and effort**: the model and effort level of the latest request.
 - **Pull request**: shown once the session pushes or touches a PR: checks passed, failed and pending, failing check names, review state.
@@ -60,7 +61,7 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 | Work · Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Work · Diff | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Pins | Every Claude Code session open on this computer, whatever the project (working ones first, with its project and when it started; terminal only, read from each session's record under `~/.claude/sessions`), then pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`; a pin already open elsewhere says so instead) |
-| Pet | Five tabs. **Pet**: species, stage, level and XP, food, bond, stamina, feeling, age and streak. **Stats**: a year of turns as a calendar (a column a week, Less → More) and, for all time or the last 7 or 30 days, turns, active days, most active day, longest and current streak, favorite hour and pats. **Evolution**: the hatch odds with its species marked, New egg, and where it is heading. **Skins** (skins and accessories) and **Achievements** |
+| Pet | Six tabs. **Pet**: species, stage, level and XP, food, bond, stamina, feeling, age and streak. **Play**: Pet Run, a game like Chrome's dinosaur: click it, then jump the rocks and cacti with Space or ↑ as your pet runs faster and faster; the best score and runs played are kept. **Stats**: a year of turns as a calendar (a column a week, Less → More) and, for all time or the last 7 or 30 days, turns, active days, most active day, longest and current streak, favorite hour and pats. **Evolution**: the hatch odds with its species marked, New egg, and where it is heading. **Skins** (skins and accessories) and **Achievements** |
 | Settings · Theme | A preview of the band and your pet in the chosen theme, then fifteen themes, each with a style of its own beyond color: its frame (round, double, heavy, thin, dashed or plain ASCII, in the band and the pane's boxes), its title mark (⚡ Neon, ❄ Nord, ✿ Sakura, ☾ Dracula…), its gauge (eighths, ▰▱, ●·, ■□, ▓░, #.) and what drifts above the band beside the pet (snow, cherry petals, rain, falling leaves, rising embers or bubbles, twinkling stars, fireflies, a cyberpunk glitch), moving a third or half a row at a time and redrawn as it moves, even at rest; Settings · Effects · Theme weather turns it off. Grouped by terminal background: Claude (follows your Claude Code theme); for dark terminals Ocean, Sunset, Neon, Forest, Mono, Cyberpunk, Dracula, Nord, Gruvbox, Catppuccin, Tokyo Night, Rosé Pine, Sakura; for light terminals Paper. Surprise me picks one at random, Back to Claude returns to yours; kept for every session |
 | Settings · Effects | Turn each effect on or off; kept for every session |
 
@@ -75,7 +76,7 @@ The pet is kept across sessions and grows with how often you use Claude Code. Ev
 - **Level**: each day you use Claude earns 20 XP plus 5 a turn (up to 20 turns a day); a streak of days in a row adds 10 a day.
 - **Food**: full for 4 hours after a turn, then peckish, hungry after a day and starving after three. A hungry pet turns grey and asks for food.
 - **Bond**: up to five hearts for how close you two are. Each of the last seven days you used Claude scores a point, and so does each day you petted it; two points make a heart.
-- **Achievements** (15): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, coming back after three days away, and petting it 10 and 100 times.
+- **Achievements** (17): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, coming back after three days away, petting it 10 and 100 times, and scoring 200 and 1,000 in Pet Run.
 - **Skins**: Classic, Sky, Rose and Leaf are free; seven more colors and three patterned skins (Tiger stripes for 30 days in a row, Galaxy stars for 1,000 turns, Candy stripes for 100 pats) each come with an achievement. Pick one in the Skins tab.
 - **Accessories**: worn over any skin, one at a time, each won with an achievement: Bow (hatching), Flower (10 pats), Wand (7 days in a row), Shades (a turn between 5 and 7 am), Sweater (100 turns). They sit where the body leaves room, so every species can wear them; an egg puts its on once it hatches. Choose in the Skins tab.
 - **Stamina**: what is left of your five-hour usage limit (the "Current session" bar in `/usage`), with the time it is full again. Below 20% the pet is low on energy (heavy eyes, slower steps); at 0% it is worn out. Shown only on a subscription.

@@ -88,6 +88,7 @@ import {
   hasSkin,
   hasAccessory,
   petLifeFrom,
+  recordRun,
   petStats,
   newPetLife,
   waveColor,
@@ -156,6 +157,11 @@ const GEAR_ICONS: Record<string, string> = { none: '·', bow: '⋈', flower: '�
 // between two frames (petClock), so a frame drawn a little early or late
 // never shows one step twice or skips one.
 let framePhase = 0
+// When the pane last drew the pet (its Pet or Play tab). It redraws at least
+// once a second while open, so a recent one means the pet is on show there,
+// and the chat leaves it out rather than draw it twice.
+let petInPaneAt = 0
+const PET_IN_PANE_MS = 3_000
 const petClock = (now: number) => now - framePhase + FRAME_MS / 2
 const WAVE_EDGE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error']
 const EFFECTS_KEY = 'effects'
@@ -187,6 +193,7 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     icon: '♥',
     tabs: [
       { id: 'pet', label: 'Pet' },
+      { id: 'play', label: 'Play' },
       { id: 'stats', label: 'Stats' },
       { id: 'evolution', label: 'Evolution' },
       { id: 'skins', label: 'Skins' },
@@ -642,6 +649,8 @@ export const register: Register = (on, options) => {
         // never changes its speed. The pane, heavier to draw, moves at two a
         // second at most, one at rest.
         const moving = (await isPlaying($)) || (await isBusy($, cacheMs))
+        // Light mode draws every other frame while things move: five a second.
+        if (moving && beats % 2 !== 0 && (await read($, effects)).light) return
         // At rest the theme's weather still redraws the band each time it
         // moves, and only then: rain ten times a second, snow four.
         const kind = themeStyle(await read($, theme)).ambient
@@ -718,6 +727,18 @@ export const register: Register = (on, options) => {
   on('ui.message', async ($, e, next) => {
     // A click on the pet, from its drawing in the band or the Pet tab.
     if (e.element.startsWith('pet-touch') && (e.data as { pat?: unknown } | null)?.pat === true) await patOnce($)
+    // A run of Pet Run ended: count it, keep the best, award what it earned.
+    const score = (e.data as { run?: unknown } | null)?.run
+    if (e.element.startsWith('pet-run') && typeof score === 'number' && Number.isFinite(score)) {
+      const now = await $.clock.now()
+      let said: string[] = []
+      await savePet($, l => {
+        const r = recordRun(l, score, now)
+        said = [...(r.isBest && l.runs > 0 ? [`New best in Pet Run: ${r.life.runBest}`] : []), ...r.earned.map(a => `Achievement: ${a.name}`)]
+        return r.life
+      })
+      if (said.length > 0) $.ui.toast(said.join(' · '))
+    }
     return next(e)
   })
 
@@ -1193,7 +1214,7 @@ export const register: Register = (on, options) => {
     const firstChips = [
       level === null || pct === undefined
         ? null
-        : chip('ctx', pill(level.color, `${level.icon} ${pctShown ?? pct}%`), limitAt === null ? 'context' : 'of compact limit'),
+        : chip('ctx', pill(level.color, `${level.icon} ${pctShown ?? pct}%`), 'context used'),
       usd === undefined
         ? null
         : chip(
@@ -1219,7 +1240,8 @@ export const register: Register = (on, options) => {
                 <Text color={paint('inactive')}>{'▱'.repeat(5 - cacheCells)}</Text>
               </Text>
             ),
-            'cache',
+            // In plain words: how long Claude keeps this chat ready for a quick, cheaper reply.
+            isRunning ? 'now' : left <= 0 ? 'next reply is slower' : 'stays warm',
           ),
       chip(
         'time',
@@ -1334,7 +1356,8 @@ export const register: Register = (on, options) => {
     const lastCall = (await read($, calls)).at(-1)
     // While Claude works the pet is out running in the chat, under the
     // spinner; its yard waits empty.
-    const isPetAway = showPet && redrawTranscript && working2
+    // While the pane shows the pet, it stays here rather than run in the chat.
+    const isPetAway = showPet && redrawTranscript && working2 && now - petInPaneAt >= PET_IN_PANE_MS
     const life = await read($, petLife)
     const lifeStats = petStats(life, now)
     const feeling = showPet ? await feelingOf($, life, now) : 'fine'
@@ -1691,7 +1714,7 @@ export const register: Register = (on, options) => {
         )}
       </Text>
     )
-    if (!(await read($, effects)).pet) return line
+    if (!(await read($, effects)).pet || now - petInPaneAt < PET_IN_PANE_MS) return line
     // The pet runs the width of the chat under the spinner while Claude works.
     const lastCall = (await read($, calls)).at(-1)
     const life = await read($, petLife)
@@ -1844,6 +1867,7 @@ export const register: Register = (on, options) => {
     const paneStyle = themeStyle(paneTheme)
     const paneBox = FRAMES[paneStyle.frame].box
     const current = await read($, tab)
+    petInPaneAt = current === 'pet' || current === 'play' ? await $.clock.now() : 0
     const width = Math.max(24, e.props.bodyColumns)
     const room = Math.max(4, e.props.scroll.bodyRows - 4)
 
@@ -1902,7 +1926,18 @@ export const register: Register = (on, options) => {
     const done = allCosts.filter(p => p.usd !== null)
     const topUsd = Math.max(0.0001, ...done.map(p => p.usd ?? 0))
     const cardWidth = Math.max(12, Math.floor((width - 2) / 3))
-    const sparkRoom = Math.max(4, cardWidth - 4)
+    // Inside a card: its width less the border and padding.
+    const cardRoom = cardWidth - 4
+    // A card names what it shows, then draws its recent history in the room left.
+    const foot = (label: string, color: string, values: number[]) => {
+      const room = cardRoom - label.length - 1
+      return (
+        <Text>
+          <Text color={paint('inactive')}>{label}</Text>
+          {values.length < 2 || room < 3 ? null : <Text color={paint(color)}>{` ${sparkline(values.slice(-room))}`}</Text>}
+        </Text>
+      )
+    }
     const card = (key: string, color: string, value: string, foot: RenderChildren) => (
       <Box
         key={key}
@@ -1927,25 +1962,13 @@ export const register: Register = (on, options) => {
           'card-ctx',
           levelHead?.color ?? 'subtle',
           pctHead === undefined ? '—' : `${levelHead?.icon ?? ''} ${pctHead}%`,
-          historyHead.length < 2 ? (
-            <Text color={paint('inactive')}>context</Text>
-          ) : (
-            <Text color={paint(levelHead?.color ?? 'subtle')}>
-              {sparkline(historyHead.slice(-sparkRoom).map(r => r.percent))}
-            </Text>
-          ),
+          foot('context', levelHead?.color ?? 'subtle', historyHead.map(r => r.percent)),
         )}
         {card(
           'card-cost',
           'claude',
           usdHead === undefined ? '—' : money(usdHead),
-          done.length < 2 ? (
-            <Text color={paint('inactive')}>spent</Text>
-          ) : (
-            <Text color={paint('claude')}>
-              {sparkline(done.slice(-sparkRoom).map(p => ((p.usd ?? 0) / topUsd) * 99))}
-            </Text>
-          ),
+          foot('spent', 'claude', done.map(p => ((p.usd ?? 0) / topUsd) * 99)),
         )}
         {card(
           'card-time',
@@ -1953,7 +1976,11 @@ export const register: Register = (on, options) => {
           duration(workingHead),
           <Text color={paint('inactive')}>
             {busy ? <Text color={paint('warning')}>{spin(f)} </Text> : null}
-            working · {allCosts.length} {allCosts.length === 1 ? 'prompt' : 'prompts'}
+            {(() => {
+              const count = `${allCosts.length} ${allCosts.length === 1 ? 'prompt' : 'prompts'}`
+              // "working" goes first where the card has room for both.
+              return `working · ${count}`.length + (busy ? 2 : 0) <= cardRoom ? `working · ${count}` : count
+            })()}
           </Text>,
         )}
       </Box>
@@ -1973,7 +2000,7 @@ export const register: Register = (on, options) => {
               {spin(f)} working {sweep(f, 4)}
             </Text>
           ) : (
-            <Text color={paint(f % 2 === 0 ? 'success' : 'inactive')}>● idle</Text>
+            <Text color={paint('success')}>● ready</Text>
           )}
         </Box>
         <Box flexDirection="row" columnGap={1} marginTop={1} overflow="hidden">
@@ -2089,7 +2116,7 @@ export const register: Register = (on, options) => {
               </Text>
             </Text>
             {limitAt === null || cw === null ? null : (
-              <Text color={paint('subtle')} wrap="truncate-end">
+              <Text color={paint('subtle')} wrap="wrap">
                 {cw.tokens < live.window
                   ? `Compact window ${compact(cw.tokens)}${
                       cw.source === 'settings' ? ' (your setting)' : cw.source === 'env' ? ' (environment)' : ''
@@ -2098,14 +2125,24 @@ export const register: Register = (on, options) => {
                 {cw.tokens > limitAt ? ` · ${compact(cw.tokens - limitAt)} kept free` : ''}
               </Text>
             )}
-            {history.length < 2 ? null : (
-              <Text wrap="truncate-end">
-                <Text color={paint('subtle')}>trend </Text>
-                <Text color={paint(level.color)}>
-                  {sparkline(history.slice(-Math.max(4, width - 8)).map(r => r.percent))}
-                </Text>
-              </Text>
-            )}
+            {history.length < 3
+              ? null
+              : (() => {
+                  // The last replies' readings, and how far they moved.
+                  const recent = history.slice(-Math.min(12, Math.max(3, width - 30)))
+                  const moved = recent[recent.length - 1]!.percent - recent[0]!.percent
+                  return (
+                    <Text wrap="truncate-end">
+                      <Text color={paint('subtle')}>trend </Text>
+                      <Text color={paint(level.color)}>{sparkline(recent.map(r => r.percent))}</Text>
+                      <Text color={paint('subtle')}>
+                        {moved === 0
+                          ? ` steady over the last ${recent.length} replies`
+                          : ` ${moved > 0 ? '+' : ''}${moved}% over the last ${recent.length} replies`}
+                      </Text>
+                    </Text>
+                  )
+                })()}
           </Box>
         )
       }
@@ -2119,40 +2156,44 @@ export const register: Register = (on, options) => {
             )}
             {prompts.map(p => (
               <Box key={p.id} flexDirection="column" marginTop={1}>
-                <Box flexDirection="row" gap={2}>
-                  <Text color={paint('subtle')} tabular>
-                    {clockTime(p.startedAt).slice(0, 5)}
-                  </Text>
-                  {p.durationMs === null ? (
-                    <Text color={paint('warning')}>
-                      {spin(f)} {duration(now - p.startedAt)}
+                {(() => {
+                  // One line in fixed columns: when, how long, what it cost.
+                  const took = p.durationMs === null ? duration(now - p.startedAt) : duration(p.durationMs)
+                  const b = p.usd === null ? null : bar((p.usd / topUsd) * 100, 8)
+                  const sizes =
+                    p.durationMs === null ? '' : `${compact(p.inputTokens)} read · ${compact(p.outputTokens)} written`
+                  const head = 5 + 2 + 7 + 2 + 6 + 1 + 8
+                  return (
+                    <Text wrap="truncate-end">
+                      <Text color={paint('subtle')} tabular>
+                        {clockTime(p.startedAt).slice(0, 5)}
+                      </Text>
+                      {'  '}
+                      {p.durationMs === null ? (
+                        <Text color={paint('warning')} tabular>
+                          {`${spin(f)} ${took}`.padStart(7)}
+                        </Text>
+                      ) : (
+                        <Text tabular>{took.padStart(7)}</Text>
+                      )}
+                      {'  '}
+                      {p.usd === null || b === null ? (
+                        ' '.repeat(15)
+                      ) : (
+                        <Text>
+                          <Text color={paint('claude')} bold tabular>
+                            {money(p.usd).padStart(6)}
+                          </Text>{' '}
+                          <Text color={paint('claude')}>{b.fill}</Text>
+                          <Text color={paint('inactive')}>{b.rest.replace(/ /g, '·')}</Text>
+                        </Text>
+                      )}
+                      {sizes === '' || head + 2 + sizes.length > width ? null : (
+                        <Text color={paint('subtle')}>{`  ${sizes}`}</Text>
+                      )}
                     </Text>
-                  ) : (
-                    <Text tabular>{duration(p.durationMs)}</Text>
-                  )}
-                  {p.usd === null ? null : (
-                    <Text>
-                      <Text color={paint('claude')} bold tabular>
-                        {money(p.usd)}
-                      </Text>{' '}
-                      {(() => {
-                        // Each prompt's cost against the dearest one so far.
-                        const b = bar((p.usd / topUsd) * 100, 8)
-                        return (
-                          <Text>
-                            <Text color={paint('claude')}>{b.fill}</Text>
-                            <Text color={paint('inactive')}>{b.rest.replace(/ /g, '·')}</Text>
-                          </Text>
-                        )
-                      })()}
-                    </Text>
-                  )}
-                  {p.durationMs === null ? null : (
-                    <Text color={paint('subtle')} tabular>
-                      {compact(p.inputTokens)} in · {compact(p.outputTokens)} out
-                    </Text>
-                  )}
-                </Box>
+                  )
+                })()}
                 <Text wrap="truncate-end">
                   <Text color={paint('subtle')}>{'└ '}</Text>
                   {humanPrompt(p.text) === '' ? (
@@ -2167,7 +2208,7 @@ export const register: Register = (on, options) => {
                   <Text color={paint('subtle')} wrap="truncate-end">
                     {'    ↳ '}
                     <Text color={paint('suggestion')}>{ag.label}</Text> · {duration(ag.durationMs)} ·{' '}
-                    {compact(ag.inputTokens)} in · {compact(ag.outputTokens)} out
+                    {compact(ag.inputTokens)} read · {compact(ag.outputTokens)} written
                   </Text>
                 ))}
               </Box>
@@ -2532,6 +2573,7 @@ export const register: Register = (on, options) => {
       }
     } else if (
       current === 'pet' ||
+      current === 'play' ||
       current === 'stats' ||
       current === 'evolution' ||
       current === 'skins' ||
@@ -2978,8 +3020,54 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
       )
+      // Pet Run: its running steps, each cut to the pet itself, so it stays put.
+      const runFrames = [0, 125, 250, 375]
+        .map(t => {
+          const rows = pet('work', t, false, PET_WIDTH, st.stage, life.skin, 'fine', life).map(row =>
+            row.flatMap(r => [...r.text].map(ch => ({ ch, color: r.color === '' ? '' : paint(r.color) }))),
+          )
+          const inked = rows.flatMap(row => row.map((c, i) => (c.ch.trim() === '' ? -1 : i))).filter(i => i >= 0)
+          const lo = Math.min(...inked)
+          const hi = Math.max(...inked)
+          return rows.map(row => row.slice(lo, hi + 1))
+        })
+        .filter((f, i, all) => all.findIndex(g => JSON.stringify(g) === JSON.stringify(f)) === i)
+      const playView = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Pet Run', life.runs === 0 ? 'not played yet' : `best ${life.runBest} · ${life.runs} ${life.runs === 1 ? 'run' : 'runs'}`)}
+          {Client === undefined ? (
+            <Text color={paint('inactive')} wrap="wrap">
+              Pet Run is played in the terminal.
+            </Text>
+          ) : (
+            <Client
+              key="pet-run"
+              module="./pet-run.tsx"
+              width="100%"
+              props={{
+                frames: runFrames,
+                best: life.runBest,
+                name: life.name,
+                colors: {
+                  ground: paint('inactive'),
+                  cactus: paint('success'),
+                  rock: paint('subtle'),
+                  text: paint('text'),
+                  dim: paint('inactive'),
+                  accent: paint('claude'),
+                },
+              }}
+            />
+          )}
+          <Text color={paint('inactive')} wrap="wrap">
+            Click the game, then jump with Space or ↑. It speeds up as you go. Esc gives the keys back to the prompt.
+          </Text>
+        </Box>
+      )
       body =
-        current === 'stats'
+        current === 'play'
+          ? playView
+          : current === 'stats'
           ? statsView
           : current === 'skins'
           ? skinsView
@@ -2998,7 +3086,9 @@ export const register: Register = (on, options) => {
           $.ui.toast('Changed for this session only; it could not be saved for the next one.')
         }
       }
-      const allOn = EFFECTS.every(x => fx[x.id])
+      // Light mode is a setting, not an effect: Turn all leaves it as it is.
+      const shows = EFFECTS.filter(x => x.id !== 'light')
+      const allOn = shows.every(x => fx[x.id])
       body = (
         <Box flexDirection="column" gap={1}>
           {heading('Effects', 'saved for every session')}
@@ -3022,7 +3112,7 @@ export const register: Register = (on, options) => {
           <Button
             key="fx-all"
             plain
-            onPress={() => save(Object.fromEntries(EFFECTS.map(x => [x.id, !allOn])) as typeof fx)}
+            onPress={() => save({ ...fx, ...Object.fromEntries(shows.map(x => [x.id, !allOn])) })}
           >
             <Text color={paint('claude')} bold>
               {allOn ? '○ Turn all off' : '● Turn all on'}

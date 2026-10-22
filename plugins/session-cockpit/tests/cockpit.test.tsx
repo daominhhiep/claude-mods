@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
+import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -235,7 +236,7 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     expect(texts.some(t => t.includes('● ready'))).toBe(true)
     const row = texts.find(t => t.includes('spent')) ?? ''
     expect(row).toContain(' $1.42  spent')
-    expect(row).toContain('◷ 5:00  ▰▰▰▰▰ cache')
+    expect(row).toContain('◷ 5:00  ▰▰▰▰▰ stays warm')
     expect(row).toContain('11m 35s session · 1m 35s working')
     expect(texts.some(x => x.includes('last prompt'))).toBe(false)
     await band.unmount()
@@ -243,8 +244,11 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect((await ui.find({ type: 'Text', text: /Storm/ }))?.text).toBe('⚡ Storm')
     expect(await ui.find({ type: 'Text', text: /^80%$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^\$0\.42$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^1m 35s$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ *\$0\.42$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ *1m 35s$/ })).toBeDefined()
+    // Each card keeps its name beside its history, and a prompt's row never wraps.
+    expect(await ui.find({ type: 'Text', text: 'context' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^  [0-9.]+k read · [0-9.]+k written$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /refactor the data loader/ })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: /code-reviewer/ }))?.text).toContain('40s')
     await ui.unmount()
@@ -367,7 +371,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
   state.now += 100_000
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
-    expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toContain('◷ 3:20  ▰▰▰▱▱ cache')
+    expect((await band.find({ type: 'Text', text: /stays warm/ }))?.text).toContain('◷ 3:20  ▰▰▰▱▱ stays warm')
     const second = (await band.find({ type: 'Text', text: /#101/ }))?.text ?? ''
     expect(second).toContain('⑂ #101 Add an approval gate')
     expect(second).toContain('✓ 1  ✗ 1 · lint failing')
@@ -386,7 +390,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
 
   state.now += 300_000
   const cold = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await cold.find({ type: 'Text', text: /cache/ }))?.text).toContain('◷ cold  cache')
+  expect((await cold.find({ type: 'Text', text: /slower/ }))?.text).toContain('◷ cold  next reply is slower')
   await cold.unmount()
 })
 
@@ -450,7 +454,7 @@ test('context is measured against the auto-compact threshold', async ($, on) => 
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
-    expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('⚠ 93%')
+    expect((await band.find({ type: 'Text', text: /context used/ }))?.text).toContain('⚠ 93%')
     await band.unmount()
 
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -583,6 +587,17 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
   await settings.press({ key: 'group-settings' })
   await settings.press({ key: 'tab-config' })
   expect(await settings.find({ type: 'Text', text: /Theme weather/ })).toBeDefined()
+  await settings.press({ key: 'fx-weather' })
+  // Light mode halves the frames while Claude works; Turn all leaves it be.
+  expect(await settings.find({ type: 'Text', text: /Light mode/ })).toBeDefined()
+  await settings.press({ key: 'fx-light' })
+  await settings.press({ key: 'fx-all' })
+  const ons = async () => (await settings.findAll({ type: 'Text', text: /^ ON  $/ })).length
+  expect(await ons()).toBe(9)
+  await settings.press({ key: 'fx-all' })
+  // Every effect off, Light mode still on.
+  expect(await ons()).toBe(1)
+  await settings.press({ key: 'fx-all' })
   await settings.press({ key: 'fx-weather' })
   await settings.unmount()
   const still = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
@@ -759,7 +774,7 @@ test('the pane and the band read the same live context mid-turn', async ($, on) 
   expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain('222k of 267k')
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('83%')
+  expect((await band.find({ type: 'Text', text: /context used/ }))?.text).toContain('83%')
   await band.unmount()
 })
 
@@ -1002,6 +1017,16 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
     state.now += 700
   }
   expect(Math.max(...seen)).toBeGreaterThan(PET_WIDTH)
+  // With the pane on the Pet tab the pet is drawn there, so it stays home in
+  // the band rather than run in the chat too; another tab sends it back out.
+  const petPane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await petPane.press({ key: 'group-pet' })
+  await petPane.press({ key: 'tab-pet' })
+  expect(await spinText()).not.toContain('▝▜')
+  expect(await bandText()).toContain('▝▜')
+  await petPane.press({ key: 'tab-stats' })
+  expect(await spinText()).toContain('▝▜')
+  await petPane.unmount()
 
   state.now += 4_000
   await $.turn.complete({ turnId: 't1', answer: '', durationMs: state.now - startedAt, isAborted: false, reason: 'answer' })
@@ -1143,7 +1168,7 @@ test('the Pet tab shows the pet, its skins and achievements; /pet names it', asy
   // Achievements and skins have tabs of their own.
   await ui.press({ key: 'tab-trophies' })
   // Hatched, and perhaps an hour-of-day one, as the clock falls in this time zone.
-  expect(await ui.find({ type: 'Text', text: /^[12] of 15$/ }), 'achievements').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^[12] of 17$/ }), 'achievements').toBeDefined()
   await ui.press({ key: 'tab-skins' })
   // A locked skin says how to earn it and is not worn.
   await ui.press({ key: 'skin-gold' })
@@ -1282,6 +1307,64 @@ test('a click on the pet, its button or /pat pets it', async ($, on) => {
 
   const said = (await $.command.run({ command: 'pat', args: '' } as never)) as { text: string }
   expect(said.text).toBe('You pet Clawd. ♥ (11 times so far)')
+})
+
+test('Pet Run: the pet jumps what comes at it, and the best run is kept', async ($, on) => {
+  // A run starts on the first jump; standing still, the first cactus ends it.
+  const hit = { left: 1, width: 7, height: 3 }
+  let s = runJump(newRun(1))
+  expect(s.phase).toBe('run')
+  while (s.y > 0) s = runStep(s, 60, hit)
+  for (let i = 0; i < 400 && s.phase === 'run'; i++) s = runStep(s, 60, hit)
+  expect(s.phase).toBe('over')
+  expect(runJump(s)).toBe(s)
+  // A jump in time clears it: jump when it is three columns from the pet.
+  let t = runJump(newRun(1))
+  for (let i = 0; i < 20 * 60 && t.phase === 'run'; i++) {
+    if (t.obstacles.some(o => o.x - (3 + hit.left + hit.width) < (3 * t.speed) / 14 && o.x > 0)) t = runJump(t)
+    t = runStep(t, 60, hit)
+  }
+  expect(t.phase).toBe('run')
+  expect(runScore(t)).toBeGreaterThan(500)
+  const life = newPetLife(0)
+  const first = recordRun(life, 250, 1)
+  expect(first.life).toMatchObject({ runs: 1, runBest: 250, lastRunAt: 1 })
+  expect(first.earned.map(a => a.name)).toEqual(['Hurdler'])
+  expect(recordRun(first.life, 90, 2).isBest).toBe(false)
+  expect(recordRun(first.life, 90, 2).life.runBest).toBe(250)
+
+  const state = { now: new Date(2026, 9, 22, 12).getTime() }
+  mock.store(on, { petLife: { ...newPetLife(state.now), turns: 30, species: 'clawd' } })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('session.usage', () => ({
+    value: { startedAt: state.now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  await ui.press({ key: 'tab-play' })
+  expect(await ui.find({ type: 'Client', key: 'pet-run' })).toBeDefined()
+  await ui.resize({ columns: 60, rows: 11, in: 'pet-run' })
+  expect(JSON.stringify(await ui.drawn({ in: 'pet-run' }))).toContain('press Space or ↑ to jump')
+  // Space starts a run; left alone, the pet runs into the first cactus.
+  await ui.key({ key: ' ', in: 'pet-run' })
+  await ui.advance(8_000)
+  expect(JSON.stringify(await ui.drawn({ in: 'pet-run' }))).toMatch(/New best! \d+ points/)
+  expect(await ui.find({ type: 'Text', text: /best \d+ · 1 run$/ })).toBeDefined()
+  // A long run earns the first Pet Run achievement.
+  await ui.post({ run: 250 }, { in: 'pet-run' })
+  expect(toasts).toContain('New best in Pet Run: 250 · Achievement: Hurdler')
+  expect(await ui.find({ type: 'Text', text: /best 250 · 2 runs$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 test('stamina follows the five-hour usage limit and wears the pet down', async ($, on) => {
