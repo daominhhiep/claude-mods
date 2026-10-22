@@ -754,9 +754,17 @@ const PET_BODY = 9
 
 type PetPose = { shut: boolean; up: boolean; apart: boolean }
 
+/** Cells of the egg drawn pale, as [row, column] in its sprite. */
+const EGG_SPOTS: [number, number][] = [
+  [1, 3],
+  [2, 5],
+]
+
 /** Each stage's three rows in a pose, every row PET_BODY cells wide. */
 const PET_SPRITES: Record<PetStage, (p: PetPose) => [string, string, string]> = {
-  egg: p => [p.up ? '   ▗▞▖   ' : '   ▗▄▖   ', '  ▐███▌  ', '   ▝▀▘   '],
+  // An oval taller than wide, its spots painted on afterwards; a crack
+  // opens at the top when it cheers.
+  egg: p => [p.up ? '   ▄▚▄   ' : '   ▄█▄   ', '  ▟███▙  ', '  ▜███▛  '],
   // A baby is two rows tall and hops a row up for joy.
   baby: p => {
     const eyes = p.shut ? '  ▐███▌  ' : '  ▐▛█▜▌  '
@@ -1095,6 +1103,10 @@ export function pet(
       const color = accent !== undefined && accent.row === row ? accent.color : body
       Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, color))
     })
+  // The egg's shell is speckled: two pale spots on the skin's color.
+  if (stage === 'egg' && body !== 'subtle') {
+    for (const [row, col] of EGG_SPOTS) put(row, x + col, grid[row]![x + col]!.ch, 'text')
+  }
   // A grown pet wears the mark of the way it grew up, where nothing else is.
   const way = PET_PATHS.find(p => p.id === look.path)
   if (way !== undefined && way.mark !== '' && (stage === 'adult' || stage === 'elder')) {

@@ -1016,7 +1016,9 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(Object.keys(read.achievements)).toEqual(['hatched'])
   // Each stage draws its own body; an egg has no eyes.
   const rows = (stage: Parameters<typeof pet>[4]) => pet('idle', 600, false, PET_WIDTH, stage).map(r => r.map(x => x.text).join(''))
-  expect(rows('egg').join('')).toContain('▗▄▖')
+  expect(rows('egg').join('')).toContain('▟███▙')
+  // Its shell is speckled with pale spots.
+  expect(pet('idle', 600, false, PET_WIDTH, 'egg').flat().filter(x => x.color === 'text').length).toBe(2)
   expect(rows('baby')[0]!.trim()).toBe('')
   expect(rows('kid')[1]).toContain(' █████ ')
   expect(pet('idle', 600, false, PET_WIDTH, 'adult', 'mint')[1]!.some(x => x.color === 'success')).toBe(true)
