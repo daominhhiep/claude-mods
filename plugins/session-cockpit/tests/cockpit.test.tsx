@@ -929,6 +929,12 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   expect(first).not.toContain('opus')
   expect(first).toContain('▐▛███▜▌')
   expect(first).toMatch(/◆ COCKPIT ─+▘▘─▝▝─/)
+  // Its body stands right over its feet, the title's width counted in columns.
+  const lines = first.split('\n')
+  const border = lines.find(l => l.startsWith('╭─ ◆ COCKPIT'))!
+  const gap = lines.find(l => /^ {10,}$/.test(l))!
+  const body = lines.find(l => l.includes('▝▜█████▛▘'))!
+  expect(gap.length + body.indexOf('▝▜') + 2).toBe(border.indexOf('▘▘'))
   expect(first).toMatch(/· Lv \d+ · Fine ─╯/)
 
   // A failed tool makes it fret.
@@ -1037,6 +1043,11 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(rows('egg').join('')).toContain('▟███▙')
   // Its shell is speckled with pale spots.
   expect(pet('idle', 600, false, PET_WIDTH, 'egg').flat().filter(x => x.color === 'text').length).toBe(2)
+  // Rolling, it moves half a cell a step, so no step jumps a whole cell.
+  const rolled = (t: number) => pet('work', t, false, 40, 'egg').map(r => r.map(x => x.text).join(''))
+  expect(rolled(0)[1]).toBe(`  ▟███▙${' '.repeat(33)}`)
+  expect(rolled(100)[1]).toBe(`  ▗████▖${' '.repeat(32)}`)
+  expect(rolled(200)[1]).toBe(`   ▟███▙${' '.repeat(32)}`)
   expect(rows('baby')[0]!.trim()).toBe('')
   expect(rows('kid')[1]).toContain(' █████ ')
   expect(pet('idle', 600, false, PET_WIDTH, 'adult', 'mint')[1]!.some(x => x.color === 'success')).toBe(true)

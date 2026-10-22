@@ -754,17 +754,50 @@ const PET_BODY = 9
 
 type PetPose = { shut: boolean; up: boolean; apart: boolean }
 
-/** Cells of the egg drawn pale, as [row, column] in its sprite. */
-const EGG_SPOTS: [number, number][] = [
-  [1, 3],
-  [2, 5],
-]
+// The egg is drawn from pixels, a quarter of a cell each, so it can roll
+// half a cell at a time and lean as it goes. X is shell, o a pale spot.
+const EGG_ART = ['....XX....', '..XXXXXX..', '.XoXXXXXX.', 'XXXXXXXXXX', 'XXXXXXoXXX', '.XXXXXXXX.']
+// Cheering, a crack opens at the top.
+const EGG_CRACKED = ['....X.....', '..XX.XXX..']
+const QUADRANTS = ' ▗▖▄▝▐▞▟▘▚▌▙▀▜▛█'
+
+/**
+ * The egg's three rows, PET_BODY cells wide: moved right by `half` half cells
+ * and its top `lean` pixels over; the cells holding a spot, as columns per row.
+ */
+function eggSprite(half: number, lean: number, isCracked: boolean): { rows: string[]; spots: number[][] } {
+  const art = isCracked ? [...EGG_CRACKED, ...EGG_ART.slice(2)] : EGG_ART
+  const W = PET_BODY * 2
+  const px = art.map((line, r) => {
+    const out = Array.from({ length: W }, () => ' ')
+    const at = 4 + half + (r < 2 ? lean : 0)
+    Array.from(line).forEach((c, i) => {
+      if (c !== '.' && at + i >= 0 && at + i < W) out[at + i] = c
+    })
+    return out
+  })
+  const on = (r: number, c: number) => px[r]![c] !== ' '
+  const rows: string[] = []
+  const spots: number[][] = []
+  for (let row = 0; row < 3; row++) {
+    let line = ''
+    const here: number[] = []
+    for (let col = 0; col < PET_BODY; col++) {
+      const [t, b, l, r] = [2 * row, 2 * row + 1, 2 * col, 2 * col + 1]
+      line += QUADRANTS[(on(t, l) ? 8 : 0) + (on(t, r) ? 4 : 0) + (on(b, l) ? 2 : 0) + (on(b, r) ? 1 : 0)]
+      if ([px[t]![l], px[t]![r], px[b]![l], px[b]![r]].includes('o')) here.push(col)
+    }
+    rows.push(line)
+    spots.push(here)
+  }
+  return { rows, spots }
+}
 
 /** Each stage's three rows in a pose, every row PET_BODY cells wide. */
 const PET_SPRITES: Record<PetStage, (p: PetPose) => [string, string, string]> = {
   // An oval taller than wide, its spots painted on afterwards; a crack
   // opens at the top when it cheers.
-  egg: p => [p.up ? '   ▄▚▄   ' : '   ▄█▄   ', '  ▟███▙  ', '  ▜███▛  '],
+  egg: p => eggSprite(0, 0, p.up).rows as [string, string, string],
   // A baby is two rows tall and hops a row up for joy.
   baby: p => {
     const eyes = p.shut ? '  ▐███▌  ' : '  ▐▛█▜▌  '
@@ -1028,6 +1061,8 @@ export function pet(
   if (mood === 'idle' && feeling === 'exhausted') mood = 'sleep'
   // Eyes that show how it feels, as the left and right eye glyphs.
   let eyes: [string, string] | null = null
+  // Where a rolling egg is between cells, and how far it leans.
+  let egg = { half: 0, lean: 0 }
 
   if (mood === 'work') {
     // Paces its yard, legs swinging: a step every quarter second in the
@@ -1035,8 +1070,18 @@ export function pet(
     // An egg rolls the same way. Tired it drags its feet; worn out it crawls.
     const slow = feeling === 'exhausted' ? 4 : feeling === 'tired' || feeling === 'drained' ? 2 : 1
     const span = room * 2
-    const step = beat((w > PET_WIDTH ? 100 : 250) * slow) % span
-    x = step <= room ? step : span - step
+    if (stage === 'egg') {
+      // An egg rolls half a cell at a time, rocking forward and back.
+      const halves = beat((w > PET_WIDTH ? 100 : 125) * slow) % (span * 2)
+      const at = halves <= room * 2 ? halves : span * 2 - halves
+      x = Math.floor(at / 2)
+      const ahead = halves <= room * 2 ? 1 : -1
+      const rock = Math.floor(halves / 2) % 4
+      egg = { half: at % 2, lean: rock === 1 ? ahead : rock === 3 ? -ahead : 0 }
+    } else {
+      const step = beat((w > PET_WIDTH ? 100 : 250) * slow) % span
+      x = step <= room ? step : span - step
+    }
     pose.apart = beat(250 * slow) % 2 === 1
     if (feeling === 'tired' || feeling === 'drained' || feeling === 'exhausted') eyes = ['▀', '▀']
     if (feeling === 'stressed') eyes = ['▚', '▞']
@@ -1092,7 +1137,8 @@ export function pet(
   }
 
   const accent = stage === 'egg' ? undefined : PET_SPECIES.find(k => k.id === look.species)?.sprites?.accent
-  spriteOf(stage, look.species ?? null)(pose)
+  const shell = stage === 'egg' ? eggSprite(egg.half, egg.lean, pose.up) : null
+  ;(shell === null ? spriteOf(stage, look.species ?? null)(pose) : shell.rows)
     // The face row has its eyes as ▛ then ▜; the body row has them the other way.
     .map(line =>
       eyes === null || pose.shut || !(line.indexOf('▛') !== -1 && line.indexOf('▜') > line.indexOf('▛'))
@@ -1104,8 +1150,8 @@ export function pet(
       Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, color))
     })
   // The egg's shell is speckled: two pale spots on the skin's color.
-  if (stage === 'egg' && body !== 'subtle') {
-    for (const [row, col] of EGG_SPOTS) put(row, x + col, grid[row]![x + col]!.ch, 'text')
+  if (shell !== null && body !== 'subtle') {
+    shell.spots.forEach((cols, row) => cols.forEach(col => put(row, x + col, grid[row]![x + col]!.ch, 'text')))
   }
   // A grown pet wears the mark of the way it grew up, where nothing else is.
   const way = PET_PATHS.find(p => p.id === look.path)

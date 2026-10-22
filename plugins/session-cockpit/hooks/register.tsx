@@ -144,6 +144,11 @@ const MAX_FILE_BYTES = 1_000_000
 const PREVIEW_LINES = 12
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
 const FRAME_MS = 100
+// Where in its 100 ms the frame timer fires. The pet's steps fall halfway
+// between two frames (petClock), so a frame drawn a little early or late
+// never shows one step twice or skips one.
+let framePhase = 0
+const petClock = (now: number) => now - framePhase + FRAME_MS / 2
 const WAVE_EDGE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error']
 const EFFECTS_KEY = 'effects'
 const TYPE_CHAR_MS = 8
@@ -621,6 +626,7 @@ export const register: Register = (on, options) => {
     $.clock.every(FRAME_MS, () => {
       beats += 1
       void (async () => {
+        framePhase = (await $.clock.now()) % FRAME_MS
         // Ten frames a second while something moves, two at rest. Motion is
         // placed by the clock, not by the frame count, so a change of pace
         // never changes its speed. The pane, heavier to draw, moves at two a
@@ -1326,7 +1332,7 @@ export const register: Register = (on, options) => {
             isHungry: lifeStats.hunger === 'hungry' || lifeStats.hunger === 'starving',
             pattedAt: life.lastPattedAt,
           }),
-          now,
+          petClock(now),
           pctShown !== undefined && pctShown >= 75,
           yardW,
           lifeStats.stage,
@@ -1468,11 +1474,13 @@ export const register: Register = (on, options) => {
       )
     const head: Cell[] = [...Array.from('╭─ ').map((ch, col) => ({ ch, color: edge(col) })), ...titleCells]
     // The pet's feet stand on the border: where they leave a gap, the line runs on.
-    const yardAt = head.length + 2
+    // Counted in columns: the title's shimmer packs several letters into one cell.
+    const headW = head.reduce((n, c) => n + Array.from(c.ch).length, 0)
+    const yardAt = headW + 2
     const feet: Cell[] =
       petRows === null
         ? []
-        : [{ ch: '─', color: edge(head.length + 1) }].concat(
+        : [{ ch: '─', color: edge(headW + 1) }].concat(
             (petRows[2] ?? []).flatMap(p => Array.from(p.text).map(ch => ({ ch, color: p.color }))).map((c, k) =>
               c.ch === ' ' ? { ch: '─', color: edge(yardAt + k) } : c,
             ),
@@ -1491,7 +1499,7 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
         <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-          <Text>{draw(dashCells(head.length + 1 + feet.length, W, col => col))}</Text>
+          <Text>{draw(dashCells(headW + 1 + feet.length, W, col => col))}</Text>
         </Box>
         <Box flexShrink={0}>
           <Text>
@@ -1663,7 +1671,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {line}
-        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now), life).map((row, r) => (
+        {pet(mood, petClock(now), isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now), life).map((row, r) => (
           <Box key={`pet-${r}`} height={1} overflow="hidden">
             <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
           </Box>
