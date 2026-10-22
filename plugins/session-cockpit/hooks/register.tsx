@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionUsage } from 'claude-code'
 
-import type { PetFeeling } from './rules'
+import type { PetFeeling, PetRange } from './rules'
 
 import type {
   AgentCost,
@@ -70,6 +70,10 @@ import {
   dayKey,
   feedAndAward,
   patPet,
+  petHeatmap,
+  petRangeStats,
+  favoriteHour,
+  shortDay,
   layNewEgg,
   newEggBlock,
   petStamina,
@@ -77,7 +81,6 @@ import {
   petFeeling,
   workIn,
   hasSkin,
-  petDays,
   petLifeFrom,
   petStats,
   newPetLife,
@@ -171,6 +174,8 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     icon: '♥',
     tabs: [
       { id: 'pet', label: 'Pet' },
+      { id: 'stats', label: 'Stats' },
+      { id: 'evolution', label: 'Evolution' },
       { id: 'skins', label: 'Skins' },
       { id: 'trophies', label: 'Achievements' },
     ],
@@ -219,8 +224,11 @@ async function savePet($: EngineInterface, change: (life: PetLife) => PetLife): 
 
 // When this session started, so a pet left alone from the start gets bored too.
 let sessionStartedAt = 0
-// When the New egg button was first pressed, so a second press soon after confirms.
-let newEggAskedAt = 0
+// Which span the Stats tab sums: all time, the last 30 days or the last 7.
+let statsRange: PetRange = 'all'
+
+// Whether the Pet tab is asking to confirm a new egg.
+let isAskingNewEgg = false
 
 // The feelings already announced, by day, so each is toasted once a day.
 const feltToday = new Set<string>()
@@ -641,6 +649,12 @@ export const register: Register = (on, options) => {
     }
     const life = await savePet($, l => ({ ...l, name: name.slice(0, 24) }))
     return { text: `Your pet is now called ${life.name}.` }
+  })
+
+  on('ui.message', async ($, e, next) => {
+    // A click on the pet, from its drawing in the band or the Pet tab.
+    if (e.element.startsWith('pet-touch') && (e.data as { pat?: unknown } | null)?.pat === true) await patOnce($)
+    return next(e)
   })
 
   on('command.run', { command: 'pat' }, async $ => {
@@ -1065,7 +1079,10 @@ export const register: Register = (on, options) => {
     const left = warmAt === null ? null : warmAt + cacheMs - now
     const status = await read($, pr)
     const live = (await read($, agents)).filter(a => a.endedAt === null)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Text } = els
+    // Only the surfaces that run a Client can tell a click on the pet.
+    const Client = 'Client' in els ? els.Client : undefined
     const paint = painter(await read($, theme))
 
     const budgetColor =
@@ -1453,13 +1470,22 @@ export const register: Register = (on, options) => {
                 {isPetAway ? (
                   <Text>{` ${(petRows[r] ?? []).map(p => p.text).join('')}`}</Text>
                 ) : (
-                  // A click anywhere on the pet pets it.
-                  <Button key={`pet-touch-${r}`} plain onPress={() => void patOnce($)}>
-                    <Text>
-                      {' '}
-                      {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
-                    </Text>
-                  </Button>
+                  // A click anywhere on the pet pets it, where the surface can tell.
+                  <Box flexDirection="row">
+                    <Text> </Text>
+                    {Client === undefined ? (
+                      <Text>
+                        {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
+                      </Text>
+                    ) : (
+                      <Client
+                        key={`pet-touch-${r}`}
+                        module="./pet-touch.tsx"
+                        width={PET_WIDTH}
+                        props={{ rows: [(petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) }))] }}
+                      />
+                    )}
+                  </Box>
                 )}
               </Box>
             )}
@@ -1678,7 +1704,9 @@ export const register: Register = (on, options) => {
 
   // ── Pane ───────────────────────────────────────────────────────────
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Code } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Text, Button, Code } = els
+    const Client = 'Client' in els ? els.Client : undefined
     const paint = painter(await read($, theme))
     const current = await read($, tab)
     const width = Math.max(24, e.props.bodyColumns)
@@ -2336,7 +2364,13 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
-    } else if (current === 'pet' || current === 'skins' || current === 'trophies') {
+    } else if (
+      current === 'pet' ||
+      current === 'stats' ||
+      current === 'evolution' ||
+      current === 'skins' ||
+      current === 'trophies'
+    ) {
       const life = await read($, petLife)
       const nowPet = await $.clock.now()
       const st = petStats(life, nowPet)
@@ -2374,15 +2408,6 @@ export const register: Register = (on, options) => {
       const barWidth = Math.max(8, Math.min(20, width - 24))
       const share = Math.max(0, Math.min(1, (st.xp - st.levelFrom) / Math.max(1, st.levelTo - st.levelFrom)))
       const filled = Math.round(share * barWidth)
-      const days = petDays(life, nowPet, 14)
-      const dayLook = (n: number) =>
-        n === 0
-          ? { ch: '·', color: 'inactive' }
-          : n < 5
-            ? { ch: '▃', color: 'subtle' }
-            : n < 15
-              ? { ch: '▅', color: 'claude' }
-              : { ch: '█', color: 'success' }
       const growth =
         st.stage === 'egg'
           ? `Hatches after ${Math.max(1, PET_HATCH_TURNS - life.eggTurns)} more ${PET_HATCH_TURNS - life.eggTurns === 1 ? 'turn' : 'turns'}`
@@ -2397,22 +2422,9 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column">
           {heading('Evolution', way === undefined ? 'when grown up' : way.name)}
           {species === undefined ? (
-            <>
-              <Text color={paint('inactive')} wrap="wrap">
-                What hatches is left to chance:
-              </Text>
-              {(Object.keys(PET_RARITIES) as (keyof typeof PET_RARITIES)[]).map(r => (
-                <Text key={`odds-${r}`} wrap="truncate-end">
-                  <Text color={paint(PET_RARITIES[r].color)} bold>{`${PET_RARITIES[r].percent}%`.padEnd(6)}</Text>
-                  <Text>{PET_RARITIES[r].name.padEnd(10)}</Text>
-                  <Text color={paint('inactive')}>
-                    {PET_SPECIES.filter(k => k.rarity === r)
-                      .map(k => k.name)
-                      .join(', ')}
-                  </Text>
-                </Text>
-              ))}
-            </>
+            <Text color={paint('inactive')} wrap="wrap">
+              It hatches first; on its 7th day of use it grows up and settles on a way.
+            </Text>
           ) : way !== undefined ? (
             <Text wrap="wrap">
               <Text color={paint(way.color)}>{way.mark === '' ? '' : `${way.mark} `}</Text>
@@ -2442,6 +2454,176 @@ export const register: Register = (on, options) => {
               </Text>
             </>
           )}
+        </Box>
+      )
+      const evolutionView = (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="column">
+            {heading(
+              'Species',
+              species === undefined ? 'still an egg' : `${species.name} · ${PET_RARITIES[species.rarity].name}`,
+            )}
+            <Text color={paint('inactive')} wrap="wrap">
+              What hatches from an egg is left to chance:
+            </Text>
+  {(Object.keys(PET_RARITIES) as (keyof typeof PET_RARITIES)[]).map(r => (
+                  <Text key={`odds-${r}`} wrap="truncate-end">
+                    <Text color={paint(PET_RARITIES[r].color)} bold>{`${PET_RARITIES[r].percent}%`.padEnd(6)}</Text>
+                    <Text>{PET_RARITIES[r].name.padEnd(10)}</Text>
+                    {PET_SPECIES.filter(k => k.rarity === r).map((k, i) => (
+                      <Text color={k.id === life.species ? undefined : paint('inactive')} bold={k.id === life.species}>
+                        {`${i === 0 ? '' : ', '}${k.id === life.species ? '▸ ' : ''}${k.name}`}
+                      </Text>
+                    ))}
+                  </Text>
+                ))}
+          </Box>
+          {species === undefined ? null : (
+            <Box flexDirection="column">
+              {isAskingNewEgg ? (
+                <Box flexDirection="column">
+                  <Text wrap="wrap">
+                    {`Swap ${life.name} the ${species.name} for a new egg? Its level, days, achievements and skins stay.`}
+                  </Text>
+                  <Box flexDirection="row" gap={2}>
+                    <Button
+                      key="pet-new-egg-yes"
+                      onPress={async () => {
+                        isAskingNewEgg = false
+                        const at = await $.clock.now()
+                        const block = newEggBlock(await read($, petLife), at)
+                        if (block !== null) {
+                          $.ui.toast(block)
+                          await update($, paneFrame, n => n + 1)
+                          return
+                        }
+                        await savePet($, l => layNewEgg(l, at))
+                        $.ui.toast(`A new egg! It hatches after ${PET_HATCH_TURNS} turns into whatever chance brings.`)
+                      }}
+                    >
+                      Yes, new egg
+                    </Button>
+                    <Button
+                      key="pet-new-egg-no"
+                      onPress={async () => {
+                        isAskingNewEgg = false
+                        await update($, paneFrame, n => n + 1)
+                      }}
+                    >
+                      Keep
+                    </Button>
+                  </Box>
+                </Box>
+              ) : (
+                <Button
+                  key="pet-new-egg"
+                  plain
+                  onPress={async () => {
+                    const block = newEggBlock(await read($, petLife), await $.clock.now())
+                    if (block !== null) {
+                      $.ui.toast(block)
+                      return
+                    }
+                    // A rare pet is easy to lose: ask first, right here.
+                    isAskingNewEgg = true
+                    await update($, paneFrame, n => n + 1)
+                  }}
+                >
+                  ↻ New egg
+                </Button>
+              )}
+              <Text color={paint('inactive')} wrap="wrap">
+                Swap it for a new egg to try for another species, once a day.
+              </Text>
+            </Box>
+          )}
+          {evolution}
+        </Box>
+      )
+      // A calendar as wide as the pane allows, a column a week, up to a year.
+      const weeks = Math.max(8, Math.min(53, width - 6))
+      const heat = petHeatmap(life.days, nowPet, weeks)
+      const monthRow = Array.from({ length: weeks }, () => ' ')
+      for (const m of heat.months) {
+        // A name needs its three cells clear, and a gap after the last one.
+        if (m.col + 3 > weeks || monthRow.slice(Math.max(0, m.col - 1), m.col + 3).some(c => c !== ' ')) continue
+        for (let i = 0; i < 3; i++) monthRow[m.col + i] = m.name[i]!
+      }
+      const HEAT = ['·', '░', '▒', '▓', '█']
+      const range = petRangeStats(life, nowPet, statsRange)
+      const hour = favoriteHour(life)
+      const stat = (label: string, value: string, rest = '') => (
+        <Text wrap="truncate-end">
+          <Text>{`${label}: `}</Text>
+          <Text color={paint('claude')} bold>
+            {value}
+          </Text>
+          <Text color={paint('inactive')}>{rest}</Text>
+        </Text>
+      )
+      const statsView = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Stats', `${life.name}'s record`)}
+          <Box flexDirection="column">
+            <Text color={paint('subtle')}>{`    ${monthRow.join('')}`}</Text>
+            {[0, 1, 2, 3, 4, 5, 6].map(row => (
+              <Text key={`heat-${row}`}>
+                <Text color={paint('subtle')}>{row === 1 ? 'Mon ' : row === 3 ? 'Wed ' : row === 5 ? 'Fri ' : '    '}</Text>
+                {heat.cells.map(col => {
+                  const level = col[row] ?? -1
+                  return level < 0 ? (
+                    ' '
+                  ) : (
+                    <Text color={paint(level === 0 ? 'inactive' : 'claude')}>{HEAT[level]}</Text>
+                  )
+                })}
+              </Text>
+            ))}
+            <Text>
+              <Text color={paint('subtle')}>{'    Less '}</Text>
+              <Text color={paint('claude')}>{HEAT.slice(1).join(' ')}</Text>
+              <Text color={paint('subtle')}>{' More'}</Text>
+            </Text>
+          </Box>
+          <Box flexDirection="row" gap={1}>
+            {(
+              [
+                ['all', 'All time'],
+                ['week', 'Last 7 days'],
+                ['month', 'Last 30 days'],
+              ] as const
+            ).map(([id, label], i) => (
+              <Box key={`stats-range-${id}`} flexDirection="row" gap={1}>
+                {i === 0 ? null : <Text color={paint('inactive')}>·</Text>}
+                <Button
+                  key={`stats-${id}`}
+                  plain
+                  dimColor={statsRange !== id}
+                  onPress={async () => {
+                    statsRange = id
+                    await update($, paneFrame, n => n + 1)
+                  }}
+                >
+                  <Text color={statsRange === id ? paint('claude') : undefined} bold={statsRange === id}>
+                    {label}
+                  </Text>
+                </Button>
+              </Box>
+            ))}
+          </Box>
+          <Box flexDirection="column">
+            {stat('Turns', range.turns.toLocaleString('en-US'))}
+            {stat('Active days', String(range.activeDays), `/${range.spanDays}`)}
+            {stat(
+              'Most active day',
+              range.mostActive === null ? '—' : shortDay(range.mostActive.day),
+              range.mostActive === null ? '' : ` · ${range.mostActive.turns} turns`,
+            )}
+            {stat('Longest streak', String(range.longestStreak), range.longestStreak === 1 ? ' day' : ' days')}
+            {stat('Current streak', String(st.streak), st.streak === 1 ? ' day' : ' days')}
+            {stat('Favorite hour', hour === null ? '—' : `${String(hour).padStart(2, '0')}:00`, hour === null ? '' : ' (all time)')}
+            {stat('Pats', range.pats.toLocaleString('en-US'))}
+          </Box>
         </Box>
       )
       const skinsView = (
@@ -2517,11 +2699,20 @@ export const register: Register = (on, options) => {
             } · level ${st.level}`,
           )}
           <Box flexDirection="column">
-            {sprite.map((row, r) => (
-              <Button key={`pet-big-${r}`} plain onPress={() => void patOnce($)}>
-                <Text>{row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}</Text>
-              </Button>
-            ))}
+            {Client === undefined ? (
+              sprite.map((row, r) => (
+                <Text key={`pet-big-${r}`}>
+                  {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
+                </Text>
+              ))
+            ) : (
+              // A click on the pet pets it.
+              <Client
+                key="pet-touch-big"
+                module="./pet-touch.tsx"
+                props={{ rows: sprite.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : paint(x.color) }))) }}
+              />
+            )}
             <Box flexDirection="row" gap={2}>
               <Button key="pet-pat" hotkey="p" plain onPress={() => void patOnce($)}>
                 ♥ Pet
@@ -2574,48 +2765,6 @@ export const register: Register = (on, options) => {
             </Text>
             <Text color={paint('subtle')}>{growth}</Text>
           </Box>
-          <Box flexDirection="column">
-            {heading('Last 14 days', 'today on the right')}
-            <Text>
-              {days.map(n => {
-                const d = dayLook(n)
-                return <Text color={paint(d.color)}>{`${d.ch} `}</Text>
-              })}
-            </Text>
-          </Box>
-          {evolution}
-          {species === undefined ? null : (
-            <Box flexDirection="column">
-              <Button
-                key="pet-new-egg"
-                plain
-                onPress={async () => {
-                  const at = await $.clock.now()
-                  const block = newEggBlock(await read($, petLife), at)
-                  if (block !== null) {
-                    $.ui.toast(block)
-                    return
-                  }
-                  // A rare pet is easy to lose: the swap takes a second press.
-                  if (at - newEggAskedAt > 5_000) {
-                    newEggAskedAt = at
-                    $.ui.toast(
-                      `Press New egg again to swap ${life.name} the ${species.name} for a new egg. Level, days, achievements and skins stay.`,
-                    )
-                    return
-                  }
-                  newEggAskedAt = 0
-                  await savePet($, l => layNewEgg(l, at))
-                  $.ui.toast(`A new egg! It hatches after ${PET_HATCH_TURNS} turns into whatever chance brings.`)
-                }}
-              >
-                ↻ New egg
-              </Button>
-              <Text color={paint('inactive')} wrap="wrap">
-                Swap it for a new egg to try for another species, once a day.
-              </Text>
-            </Box>
-          )}
           <Text color={paint('inactive')} wrap="wrap">
             {isOn
               ? 'Every turn feeds it. Each day you use Claude helps it grow, and days in a row earn extra XP. Name it with /pet and a name.'
@@ -2623,7 +2772,16 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
       )
-      body = current === 'skins' ? skinsView : current === 'trophies' ? trophiesView : petView
+      body =
+        current === 'stats'
+          ? statsView
+          : current === 'skins'
+          ? skinsView
+          : current === 'trophies'
+            ? trophiesView
+            : current === 'evolution'
+              ? evolutionView
+              : petView
     } else if (current === 'config') {
       const fx = await read($, effects)
       const save = async (next: typeof fx) => {

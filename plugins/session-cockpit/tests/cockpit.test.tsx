@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -895,7 +895,11 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   } as const
   const bandText = async () => {
     const band = await $.ui.mount(BAND as never)
-    const text = (await band.findAll({ type: 'Text' })).map(x => x.text).join('\n')
+    // The pet is drawn by its own Client, handed its rows as props.
+    const pets = (await band.findAll({ type: 'Client' })).map(c =>
+      (c.props.props as { rows: { text: string }[][] }).rows.map(r => r.map(x => x.text).join('')).join('\n'),
+    )
+    const text = [...(await band.findAll({ type: 'Text' })).map(x => x.text), ...pets].join('\n')
     await band.unmount()
     return text
   }
@@ -1171,12 +1175,14 @@ test('a click on the pet, its button or /pat pets it', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-pet' })
   expect(await ui.find({ type: 'Text', text: /^Petted 8 times$/ })).toBeDefined()
-  await ui.press({ key: 'pet-big-1' })
+  // A click on the pet itself, then its button.
+  await ui.pointer({ type: 'down', x: 4, y: 1, button: 'left' } as never)
   await ui.press({ key: 'pet-pat' })
   expect(toasts).toContain('Achievement: Good friend')
   expect(await ui.find({ type: 'Text', text: /^Petted 10 times$/ })).toBeDefined()
   // Hearts float over the pet for a moment.
-  expect(await ui.find({ type: 'Text', text: /♥/ })).toBeDefined()
+  const drawn = await ui.find({ type: 'Client', key: 'pet-touch-big' })
+  expect(JSON.stringify(drawn?.props.props)).toContain('♥')
   await ui.unmount()
 
   const said = (await $.command.run({ command: 'pat', args: '' } as never)) as { text: string }
@@ -1281,14 +1287,16 @@ test('the Pet tab shows the odds in the egg and where the pet is heading', async
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-pet' })
+  await ui.press({ key: 'tab-evolution' })
   expect(await ui.find({ type: 'Text', text: /^3%\s+$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Dragon, Unicorn$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Dragon$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^, Unicorn$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^0\.1%\s+$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Clawd King$/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('a new egg rolls the species again, once a day, after a second press', async ($, on) => {
+test('a new egg rolls the species again, once a day, once confirmed', async ($, on) => {
   const now = new Date(2026, 9, 22, 12).getTime()
   const grown = {
     ...newPetLife(now - 10 * 86_400_000),
@@ -1327,11 +1335,57 @@ test('a new egg rolls the species again, once a day, after a second press', asyn
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-pet' })
+  await ui.press({ key: 'tab-evolution' })
+  // The first press asks right there, with no hurry; Keep leaves it be.
   await ui.press({ key: 'pet-new-egg' })
-  expect(toasts.at(-1)).toContain('Press New egg again to swap Clawd the Cat')
-  state.now += 2_000
+  expect(await ui.find({ type: 'Text', text: /^Swap Clawd the Cat for a new egg\?/ })).toBeDefined()
+  await ui.press({ key: 'pet-new-egg-no' })
+  expect(await ui.find({ type: 'Text', text: /^Swap Clawd/ })).toBeUndefined()
   await ui.press({ key: 'pet-new-egg' })
+  state.now += 60_000
+  await ui.press({ key: 'pet-new-egg-yes' })
   expect(toasts.at(-1)).toContain('A new egg!')
+  await ui.press({ key: 'tab-pet' })
   expect(await ui.find({ type: 'Text', text: /^Hatches after 3 more turns$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the Stats tab draws a year of turns and sums a chosen span', async ($, on) => {
+  const now = new Date(2026, 9, 22, 12).getTime() // a Thursday
+  const day = 86_400_000
+  const days: Record<string, number> = {}
+  for (const [ago, n] of [[0, 4], [1, 2], [2, 9], [10, 1], [40, 20], [41, 3]] as const) days[dayKey(now - ago * day)] = n
+  const life = { ...newPetLife(now - 50 * day), days, turns: 39, eggTurns: 39, species: 'clawd', pats: 5, patDays: { [dayKey(now)]: 2 } }
+  life.hours[23] = 7
+  // Pure: columns of weeks, Sunday on top, days to come left blank.
+  const heat = petHeatmap(days, now, 10)
+  expect(heat.cells.length).toBe(10)
+  // Levels are quarters of the busiest day in view (20 turns).
+  expect(heat.cells.at(-1)).toEqual([0, 0, 2, 1, 1, -1, -1])
+  expect(heat.months.map(m => m.name)).toContain('Oct')
+  expect(petRangeStats(life, now, 'week')).toMatchObject({ turns: 15, activeDays: 3, spanDays: 7, longestStreak: 3, pats: 2 })
+  expect(petRangeStats(life, now, 'all')).toMatchObject({ turns: 39, activeDays: 6, spanDays: 42, pats: 5 })
+  expect(petRangeStats(life, now, 'all').mostActive).toEqual({ day: dayKey(now - 40 * day), turns: 20 })
+  expect(favoriteHour(life)).toBe(23)
+
+  mock.store(on, { petLife: life })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.usage', () => ({ value: { startedAt: now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } } }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  await ui.press({ key: 'tab-stats' })
+  expect(await ui.find({ type: 'Text', text: /^Wed $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ Less $|^    Less $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^39$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^23:00$/ })).toBeDefined()
+  await ui.press({ key: 'stats-week' })
+  expect(await ui.find({ type: 'Text', text: /^15$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\/7$/ })).toBeDefined()
+  await ui.press({ key: 'stats-all' })
   await ui.unmount()
 })
