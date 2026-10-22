@@ -1,6 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionUsage } from 'claude-code'
 
+import type { PetFeeling } from './rules'
+
 import type {
   AgentCost,
   AgentNode,
@@ -60,8 +62,20 @@ import {
   PET_WIDTH,
   PET_ACHIEVEMENTS,
   PET_HATCH_TURNS,
+  PET_FEELINGS,
   PET_SKINS,
+  PET_SPECIES,
+  PET_RARITIES,
+  PET_PATHS,
+  dayKey,
   feedAndAward,
+  patPet,
+  layNewEgg,
+  newEggBlock,
+  petStamina,
+  PET_LOVED_MS,
+  petFeeling,
+  workIn,
   hasSkin,
   petDays,
   petLifeFrom,
@@ -151,7 +165,16 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     ],
   },
   { id: 'sessions', label: 'Pins', icon: '★', tabs: [{ id: 'sessions', label: 'Pins' }] },
-  { id: 'pet', label: 'Pet', icon: '♥', tabs: [{ id: 'pet', label: 'Pet' }] },
+  {
+    id: 'pet',
+    label: 'Pet',
+    icon: '♥',
+    tabs: [
+      { id: 'pet', label: 'Pet' },
+      { id: 'skins', label: 'Skins' },
+      { id: 'trophies', label: 'Achievements' },
+    ],
+  },
   {
     id: 'settings',
     label: 'Settings',
@@ -194,6 +217,54 @@ async function savePet($: EngineInterface, change: (life: PetLife) => PetLife): 
   return next
 }
 
+// When this session started, so a pet left alone from the start gets bored too.
+let sessionStartedAt = 0
+// When the New egg button was first pressed, so a second press soon after confirms.
+let newEggAskedAt = 0
+
+// The feelings already announced, by day, so each is toasted once a day.
+const feltToday = new Set<string>()
+
+/** How the pet feels at `now`, from today's turns, this session's work and its failures. */
+async function feelingOf($: EngineInterface, life: PetLife, now: number): Promise<PetFeeling> {
+  const turns = await read($, costs)
+  const last = turns.at(-1)
+  const lastEnd =
+    last === undefined ? sessionStartedAt : last.durationMs === null ? now : last.startedAt + last.durationMs
+  return petFeeling({
+    now,
+    todayTurns: life.days[dayKey(now)] ?? 0,
+    work2h: workIn(turns, now, 2 * 3_600_000),
+    work3h: workIn(turns, now, 3 * 3_600_000),
+    failures: (await read($, calls)).filter(c => c.status === 'error' && c.startedAt >= now - 600_000).length,
+    idleMs: Math.max(0, now - lastEnd),
+    pattedAgo: life.lastPattedAt === null ? undefined : now - life.lastPattedAt,
+    stamina: await staminaOf($).then(s => s?.percent ?? null),
+  })
+}
+
+/** The pet's stamina from the session's usage limit, or null with none. */
+async function staminaOf($: EngineInterface): Promise<ReturnType<typeof petStamina>> {
+  try {
+    return petStamina((await $.session.usage()).rateLimits)
+  } catch {
+    return null
+  }
+}
+
+/** Pets the pet once: hearts for a moment, and any petting achievement it earns. */
+async function patOnce($: EngineInterface): Promise<PetLife> {
+  const now = await $.clock.now()
+  let earned: string[] = []
+  const life = await savePet($, l => {
+    const r = patPet(l, now)
+    earned = r.earned.map(a => `Achievement: ${a.name}`)
+    return r.life
+  })
+  if (earned.length > 0) $.ui.toast(earned.join(' · '))
+  return life
+}
+
 /** True while something moves: a prompt or agent runs, a guard waits, the cache is about to go cold. */
 /** True while an effect plays: frames then run at full speed. */
 async function isPlaying($: EngineInterface): Promise<boolean> {
@@ -202,7 +273,10 @@ async function isPlaying($: EngineInterface): Promise<boolean> {
   const b = await read($, burstAt)
   if (b !== null && now - b.at < BURST_MS) return true
   const fl = await read($, flashAt)
-  return fl !== null && now - fl.at < FLASH_MS
+  if (fl !== null && now - fl.at < FLASH_MS) return true
+  // Hearts float for a moment after a pat.
+  const pattedAt = (await read($, petLife)).lastPattedAt
+  return pattedAt !== null && now - pattedAt < PET_LOVED_MS
 }
 
 async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
@@ -219,6 +293,11 @@ async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
   if (warmAt === null) return false
   const left = warmAt + cacheMs - (await $.clock.now())
   return left > 0 && left <= 60_000
+}
+
+/** A word with its article: a Sage, an All-rounder. */
+function an(word: string): string {
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`
 }
 
 function clockTime(ms: number): string {
@@ -451,6 +530,10 @@ export const register: Register = (on, options) => {
       description: 'See how your pet is doing, or name it, e.g. /pet Mochi',
       argumentHint: '[name]',
     })
+    await $.command.register({
+      name: 'pat',
+      description: 'Pet your pet',
+    })
     try {
       const id = await $.session.id()
       await update($, sessionId, () => id)
@@ -467,6 +550,7 @@ export const register: Register = (on, options) => {
     }
     // The pet loads on its own, so a failing read above never leaves it unborn.
     const bornAt = await $.clock.now()
+    sessionStartedAt = bornAt
     await savePet($, l => (l.bornAt === 0 ? { ...l, bornAt } : l))
     void $.ui.open({ id: PANE, title: TITLE })
     try {
@@ -544,14 +628,24 @@ export const register: Register = (on, options) => {
     if (name === '') {
       const life = await savePet($, l => l)
       const st = petStats(life, now)
+      const stamina = await staminaOf($)
       return {
-        text: `${life.name} is a ${st.stageName.toLowerCase()} at level ${st.level}: ${st.hunger}, ${st.streak}-day streak, ${
+        text: `${life.name} is a ${st.stageName.toLowerCase()}${
+          life.species === null ? '' : ` ${PET_SPECIES.find(k => k.id === life.species)?.name ?? ''}`
+        } at level ${st.level}: ${st.hunger}, ${
+          stamina === null ? '' : `${stamina.percent}% stamina, `
+        }${st.streak}-day streak, ${
           Object.keys(life.achievements).length
         } of ${PET_ACHIEVEMENTS.length} achievements. The Pet tab in /cockpit shows the rest.`,
       }
     }
     const life = await savePet($, l => ({ ...l, name: name.slice(0, 24) }))
     return { text: `Your pet is now called ${life.name}.` }
+  })
+
+  on('command.run', { command: 'pat' }, async $ => {
+    const life = await patOnce($)
+    return { text: `You pet ${life.name}. ♥ (${life.pats} ${life.pats === 1 ? 'time' : 'times'} so far)` }
   })
 
   on('command.run', { command: 'unpin' }, async $ => {
@@ -747,12 +841,29 @@ export const register: Register = (on, options) => {
         const was = petStats(before, at)
         const is = petStats(life, at)
         const news: string[] = []
+        const kind = PET_SPECIES.find(k => k.id === life.species)
+        const way = PET_PATHS.find(w => w.id === life.path)
         if (is.stage !== was.stage) {
-          news.push(was.stage === 'egg' ? `${life.name} hatched!` : `${life.name} grew into a ${is.stageName.toLowerCase()}!`)
+          news.push(
+            was.stage === 'egg'
+              ? `${life.name} hatched${kind === undefined ? '' : `: ${an(PET_RARITIES[kind.rarity].name.toLowerCase())} ${kind.name}`}!`
+              : `${life.name} grew into a ${is.stageName.toLowerCase()}!`,
+          )
         } else if (is.level > was.level) news.push(`${life.name} reached level ${is.level}.`)
+        if (way !== undefined && (before as PetLife).path !== life.path) news.push(`It grew up ${an(way.name)}.`)
         for (const a of earned) {
           const skin = PET_SKINS.find(k => k.unlock === a.id)
           news.push(`Achievement: ${a.name}${skin === undefined ? '' : ` (new skin: ${skin.name})`}`)
+        }
+        // A heavy feeling is said once a day, when it first sets in.
+        const feeling = await feelingOf($, life, at)
+        const key = `${dayKey(at)}:${feeling}`
+        if (
+          (feeling === 'tired' || feeling === 'exhausted' || feeling === 'drained' || feeling === 'stressed') &&
+          !feltToday.has(key)
+        ) {
+          feltToday.add(key)
+          news.push(`${life.name} is ${PET_FEELINGS[feeling].name.toLowerCase()}. ${PET_FEELINGS[feeling].tip}`)
         }
         if (news.length > 0) $.ui.toast(news.join(' · '))
       }
@@ -954,7 +1065,7 @@ export const register: Register = (on, options) => {
     const left = warmAt === null ? null : warmAt + cacheMs - now
     const status = await read($, pr)
     const live = (await read($, agents)).filter(a => a.endedAt === null)
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const paint = painter(await read($, theme))
 
     const budgetColor =
@@ -1138,6 +1249,7 @@ export const register: Register = (on, options) => {
     const isPetAway = showPet && redrawTranscript && working2
     const life = await read($, petLife)
     const lifeStats = petStats(life, now)
+    const feeling = showPet ? await feelingOf($, life, now) : 'fine'
     const petRows = isPetAway
       ? [0, 1, 2].map(() => [{ text: ' '.repeat(PET_WIDTH), color: '' }])
       : showPet
@@ -1152,12 +1264,15 @@ export const register: Register = (on, options) => {
                 ? lastCall.startedAt + lastCall.ms
                 : null,
             isHungry: lifeStats.hunger === 'hungry' || lifeStats.hunger === 'starving',
+            pattedAt: life.lastPattedAt,
           }),
           now,
           pctShown !== undefined && pctShown >= 75,
           PET_WIDTH,
           lifeStats.stage,
           life.skin,
+          feeling,
+          life,
         )
       : null
 
@@ -1328,11 +1443,24 @@ export const register: Register = (on, options) => {
               {row}
             </Box>
             {petRows === null ? null : (
-              <Box flexShrink={0}>
-                <Text>
-                  {' '}
-                  {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
-                </Text>
+              <Box key={`pet-yard-${r}`} flexShrink={0} hover={{ scope: 'pet' }}>
+                {r === 0 ? (
+                  // A heart pops up while the pointer rests on the pet.
+                  <Box position="absolute" top={0} right={0} display="none" hover={{ scope: 'pet', display: 'flex' }}>
+                    <Text color={paint('error')}>♥</Text>
+                  </Box>
+                ) : null}
+                {isPetAway ? (
+                  <Text>{` ${(petRows[r] ?? []).map(p => p.text).join('')}`}</Text>
+                ) : (
+                  // A click anywhere on the pet pets it.
+                  <Button key={`pet-touch-${r}`} plain onPress={() => void patOnce($)}>
+                    <Text>
+                      {' '}
+                      {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
+                    </Text>
+                  </Button>
+                )}
               </Box>
             )}
             <Box flexShrink={0}>
@@ -1409,6 +1537,7 @@ export const register: Register = (on, options) => {
     if (!(await read($, effects)).pet) return line
     // The pet runs the width of the chat under the spinner while Claude works.
     const lastCall = (await read($, calls)).at(-1)
+    const life = await read($, petLife)
     const mood = petMood({
       now,
       isWorking: true,
@@ -1418,14 +1547,14 @@ export const register: Register = (on, options) => {
         lastCall !== undefined && lastCall.status === 'error' && lastCall.ms !== null
           ? lastCall.startedAt + lastCall.ms
           : null,
+      pattedAt: life.lastPattedAt,
     })
     const readings = await read($, weather)
     const isSweating = (readings.at(-1)?.percent ?? 0) >= 75
-    const life = await read($, petLife)
     return (
       <Box flexDirection="column">
         {line}
-        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin).map((row, r) => (
+        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now), life).map((row, r) => (
           <Box key={`pet-${r}`} height={1} overflow="hidden">
             <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
           </Box>
@@ -2207,11 +2336,17 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
-    } else if (current === 'pet') {
+    } else if (current === 'pet' || current === 'skins' || current === 'trophies') {
       const life = await read($, petLife)
       const nowPet = await $.clock.now()
       const st = petStats(life, nowPet)
       const isOn = (await read($, effects)).pet
+      const feeling = await feelingOf($, life, nowPet)
+      // Stamina is what is left of the session's five-hour usage limit.
+      const stamina = petStamina(usageHead?.rateLimits ?? [])
+      const staminaFill = stamina === null ? 0 : Math.round(stamina.percent / 10)
+      const staminaColor =
+        stamina === null || stamina.percent > 50 ? 'success' : stamina.percent > 20 ? 'warning' : 'error'
       const hungerLook = {
         full: { label: 'Full', color: 'success' },
         peckish: { label: 'Peckish', color: 'claude' },
@@ -2226,12 +2361,15 @@ export const register: Register = (on, options) => {
           turnEndedAt: null,
           failedAt: null,
           isHungry: st.hunger === 'hungry' || st.hunger === 'starving',
+          pattedAt: life.lastPattedAt,
         }),
         nowPet,
         false,
         Math.min(Math.max(PET_WIDTH, width), 28),
         st.stage,
         life.skin,
+        feeling,
+        life,
       )
       const barWidth = Math.max(8, Math.min(20, width - 24))
       const share = Math.max(0, Math.min(1, (st.xp - st.levelFrom) / Math.max(1, st.levelTo - st.levelFrom)))
@@ -2247,56 +2385,76 @@ export const register: Register = (on, options) => {
               : { ch: '█', color: 'success' }
       const growth =
         st.stage === 'egg'
-          ? `Hatches after ${Math.max(1, PET_HATCH_TURNS - life.turns)} more ${PET_HATCH_TURNS - life.turns === 1 ? 'turn' : 'turns'}`
+          ? `Hatches after ${Math.max(1, PET_HATCH_TURNS - life.eggTurns)} more ${PET_HATCH_TURNS - life.eggTurns === 1 ? 'turn' : 'turns'}`
           : st.next === null
             ? 'Fully grown'
             : `${st.next.name} in ${st.next.days} more ${st.next.days === 1 ? 'day' : 'days'} of use`
       const earned = PET_ACHIEVEMENTS.filter(a => life.achievements[a.id] !== undefined).length
       const skinsOwned = PET_SKINS.filter(k => hasSkin(life, k.id)).length
-      body = (
+      const species = PET_SPECIES.find(k => k.id === life.species)
+      const way = PET_PATHS.find(w => w.id === life.path)
+      const evolution = (
+        <Box flexDirection="column">
+          {heading('Evolution', way === undefined ? 'when grown up' : way.name)}
+          {species === undefined ? (
+            <>
+              <Text color={paint('inactive')} wrap="wrap">
+                What hatches is left to chance:
+              </Text>
+              {(Object.keys(PET_RARITIES) as (keyof typeof PET_RARITIES)[]).map(r => (
+                <Text key={`odds-${r}`} wrap="truncate-end">
+                  <Text color={paint(PET_RARITIES[r].color)} bold>{`${PET_RARITIES[r].percent}%`.padEnd(6)}</Text>
+                  <Text>{PET_RARITIES[r].name.padEnd(10)}</Text>
+                  <Text color={paint('inactive')}>
+                    {PET_SPECIES.filter(k => k.rarity === r)
+                      .map(k => k.name)
+                      .join(', ')}
+                  </Text>
+                </Text>
+              ))}
+            </>
+          ) : way !== undefined ? (
+            <Text wrap="wrap">
+              <Text color={paint(way.color)}>{way.mark === '' ? '' : `${way.mark} `}</Text>
+              <Text bold>{`${life.name} grew up ${an(way.name)}`}</Text>
+              <Text color={paint('inactive')}>{` · ${way.hint}`}</Text>
+            </Text>
+          ) : (
+            <>
+              <Text color={paint('inactive')} wrap="wrap">
+                On the day it grows up, its strongest habit decides what it becomes:
+              </Text>
+              {PET_PATHS.filter(w => w.id !== 'balanced').map(w => {
+                const score = Math.max(0, Math.min(1, w.score(life, nowPet)))
+                const n = Math.round(score * 8)
+                return (
+                  <Text key={`way-${w.id}`} wrap="truncate-end">
+                    <Text color={paint(w.color)}>{`${w.mark} `}</Text>
+                    <Text>{w.name.padEnd(10)}</Text>
+                    <Text color={paint(w.color)}>{'▰'.repeat(n)}</Text>
+                    <Text color={paint('inactive')}>{'▱'.repeat(8 - n)}</Text>
+                    <Text color={paint('inactive')}>{`  ${w.hint}`}</Text>
+                  </Text>
+                )
+              })}
+              <Text color={paint('inactive')} wrap="wrap">
+                No bar full by then: an All-rounder.
+              </Text>
+            </>
+          )}
+        </Box>
+      )
+      const skinsView = (
         <Box flexDirection="column" gap={1}>
-          {heading(life.name, `${st.stageName} · level ${st.level}`)}
+          {heading('Skins', `${skinsOwned} of ${PET_SKINS.length}`)}
           <Box flexDirection="column">
             {sprite.map((row, r) => (
-              <Text key={`pet-big-${r}`}>
+              <Text key={`skin-look-${r}`}>
                 {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
               </Text>
             ))}
           </Box>
           <Box flexDirection="column">
-            <Text>
-              <Text bold>{`Lv ${st.level} `}</Text>
-              <Text color={paint('claude')}>{'▰'.repeat(filled)}</Text>
-              <Text color={paint('inactive')}>{'▱'.repeat(barWidth - filled)}</Text>
-              <Text color={paint('inactive')}>{` ${st.xp - st.levelFrom}/${st.levelTo - st.levelFrom} XP`}</Text>
-            </Text>
-            <Text>
-              <Text color={paint('inactive')}>Food </Text>
-              <Text color={paint(hungerLook[st.hunger].color)} bold>
-                {hungerLook[st.hunger].label}
-              </Text>
-              <Text color={paint('inactive')}>{'   Mood '}</Text>
-              <Text color={paint('error')}>{'●'.repeat(st.hearts)}</Text>
-              <Text color={paint('inactive')}>{'○'.repeat(5 - st.hearts)}</Text>
-            </Text>
-            <Text color={paint('inactive')} wrap="wrap">
-              {`${st.ageDays} ${st.ageDays === 1 ? 'day' : 'days'} old · used on ${st.activeDays} ${
-                st.activeDays === 1 ? 'day' : 'days'
-              } · ${st.streak}-day streak`}
-            </Text>
-            <Text color={paint('subtle')}>{growth}</Text>
-          </Box>
-          <Box flexDirection="column">
-            {heading('Last 14 days', 'today on the right')}
-            <Text>
-              {days.map(n => {
-                const d = dayLook(n)
-                return <Text color={paint(d.color)}>{`${d.ch} `}</Text>
-              })}
-            </Text>
-          </Box>
-          <Box flexDirection="column">
-            {heading('Skins', `${skinsOwned} of ${PET_SKINS.length}`)}
             {PET_SKINS.map(k => {
               const owned = hasSkin(life, k.id)
               const worn = life.skin === k.id
@@ -2325,8 +2483,15 @@ export const register: Register = (on, options) => {
               )
             })}
           </Box>
+          <Text color={paint('inactive')} wrap="wrap">
+            Each locked skin comes with an achievement; press one to see which.
+          </Text>
+        </Box>
+      )
+      const trophiesView = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Achievements', `${earned} of ${PET_ACHIEVEMENTS.length}`)}
           <Box flexDirection="column">
-            {heading('Achievements', `${earned} of ${PET_ACHIEVEMENTS.length}`)}
             {PET_ACHIEVEMENTS.map(a => {
               const got = life.achievements[a.id] !== undefined
               return (
@@ -2334,10 +2499,123 @@ export const register: Register = (on, options) => {
                   <Text color={paint(got ? 'success' : 'inactive')}>{got ? '✓ ' : '○ '}</Text>
                   <Text bold={got} color={got ? undefined : paint('subtle')}>{a.name}</Text>
                   <Text color={paint('inactive')}>{`  ${a.hint}`}</Text>
+                  {got ? (
+                    <Text color={paint('subtle')}>{` · ${dayKey(life.achievements[a.id]!)}`}</Text>
+                  ) : null}
                 </Text>
               )
             })}
           </Box>
+        </Box>
+      )
+      const petView = (
+        <Box flexDirection="column" gap={1}>
+          {heading(
+            life.name,
+            `${species === undefined ? '' : `${species.name} · `}${st.stageName}${
+              way === undefined || way.id === 'balanced' ? '' : ` ${way.name}`
+            } · level ${st.level}`,
+          )}
+          <Box flexDirection="column">
+            {sprite.map((row, r) => (
+              <Button key={`pet-big-${r}`} plain onPress={() => void patOnce($)}>
+                <Text>{row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}</Text>
+              </Button>
+            ))}
+            <Box flexDirection="row" gap={2}>
+              <Button key="pet-pat" hotkey="p" plain onPress={() => void patOnce($)}>
+                ♥ Pet
+              </Button>
+              <Text color={paint('inactive')}>
+                {life.pats === 0 ? `${life.name} would like a pat` : `Petted ${life.pats} ${life.pats === 1 ? 'time' : 'times'}`}
+              </Text>
+            </Box>
+          </Box>
+          <Box flexDirection="column">
+            <Text>
+              <Text bold>{`Lv ${st.level} `}</Text>
+              <Text color={paint('claude')}>{'▰'.repeat(filled)}</Text>
+              <Text color={paint('inactive')}>{'▱'.repeat(barWidth - filled)}</Text>
+              <Text color={paint('inactive')}>{` ${st.xp - st.levelFrom}/${st.levelTo - st.levelFrom} XP`}</Text>
+            </Text>
+            <Text>
+              <Text color={paint('inactive')}>Food </Text>
+              <Text color={paint(hungerLook[st.hunger].color)} bold>
+                {hungerLook[st.hunger].label}
+              </Text>
+              <Text color={paint('inactive')}>{'   Bond '}</Text>
+              <Text color={paint('error')}>{'●'.repeat(st.bond)}</Text>
+              <Text color={paint('inactive')}>{'○'.repeat(5 - st.bond)}</Text>
+            </Text>
+            {stamina === null ? null : (
+              <Text wrap="wrap">
+                <Text color={paint('inactive')}>Stamina </Text>
+                <Text color={paint(staminaColor)}>{'▰'.repeat(staminaFill)}</Text>
+                <Text color={paint('inactive')}>{'▱'.repeat(10 - staminaFill)}</Text>
+                <Text color={paint(staminaColor)} bold>{` ${stamina.percent}%`}</Text>
+                {stamina.refillsAt === null || stamina.percent >= 100 ? null : (
+                  <Text color={paint('inactive')}>{` · full again at ${clockTime(stamina.refillsAt).slice(0, 5)}`}</Text>
+                )}
+              </Text>
+            )}
+            <Text wrap="wrap">
+              <Text color={paint('inactive')}>Feeling </Text>
+              <Text color={paint(PET_FEELINGS[feeling].color)} bold>
+                {PET_FEELINGS[feeling].name}
+              </Text>
+              {feeling === 'fine' ? null : (
+                <Text color={paint('inactive')}>{` · ${PET_FEELINGS[feeling].tip}`}</Text>
+              )}
+            </Text>
+            <Text color={paint('inactive')} wrap="wrap">
+              {`${st.ageDays} ${st.ageDays === 1 ? 'day' : 'days'} old · used on ${st.activeDays} ${
+                st.activeDays === 1 ? 'day' : 'days'
+              } · ${st.streak}-day streak`}
+            </Text>
+            <Text color={paint('subtle')}>{growth}</Text>
+          </Box>
+          <Box flexDirection="column">
+            {heading('Last 14 days', 'today on the right')}
+            <Text>
+              {days.map(n => {
+                const d = dayLook(n)
+                return <Text color={paint(d.color)}>{`${d.ch} `}</Text>
+              })}
+            </Text>
+          </Box>
+          {evolution}
+          {species === undefined ? null : (
+            <Box flexDirection="column">
+              <Button
+                key="pet-new-egg"
+                plain
+                onPress={async () => {
+                  const at = await $.clock.now()
+                  const block = newEggBlock(await read($, petLife), at)
+                  if (block !== null) {
+                    $.ui.toast(block)
+                    return
+                  }
+                  // A rare pet is easy to lose: the swap takes a second press.
+                  if (at - newEggAskedAt > 5_000) {
+                    newEggAskedAt = at
+                    $.ui.toast(
+                      `Press New egg again to swap ${life.name} the ${species.name} for a new egg. Level, days, achievements and skins stay.`,
+                    )
+                    return
+                  }
+                  newEggAskedAt = 0
+                  await savePet($, l => layNewEgg(l, at))
+                  $.ui.toast(`A new egg! It hatches after ${PET_HATCH_TURNS} turns into whatever chance brings.`)
+                }}
+              >
+                ↻ New egg
+              </Button>
+              <Text color={paint('inactive')} wrap="wrap">
+                Swap it for a new egg to try for another species, once a day.
+              </Text>
+            </Box>
+          )}
           <Text color={paint('inactive')} wrap="wrap">
             {isOn
               ? 'Every turn feeds it. Each day you use Claude helps it grow, and days in a row earn extra XP. Name it with /pet and a name.'
@@ -2345,6 +2623,7 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
       )
+      body = current === 'skins' ? skinsView : current === 'trophies' ? trophiesView : petView
     } else if (current === 'config') {
       const fx = await read($, effects)
       const save = async (next: typeof fx) => {
