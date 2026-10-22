@@ -560,8 +560,20 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     const band = await $.ui.mount({ ...BAND, surface } as never)
     expect(JSON.stringify(await band.drawn())).toContain('#ff2bd6')
     await band.unmount()
+    // The tab previews the chosen theme, sorts themes by terminal background,
+    // and can pick one at random or go back to Claude's own.
+    expect(JSON.stringify(await ui.drawn())).toContain('#ff2bd6')
+    expect(await ui.find({ type: 'Text', text: 'For light terminals' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Paper/ })).toBeDefined()
+    await ui.press({ key: 'theme-shuffle' })
+    expect(await ui.find({ type: 'Text', text: /^THEME$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Neon · saved/ })).toBeUndefined()
+    await ui.press({ key: 'theme-reset' })
+    expect(await ui.find({ type: 'Text', text: /^Claude · saved/ })).toBeDefined()
+    await ui.press({ key: 'theme-neon' })
     await ui.unmount()
   }
+  expect(THEMES.length).toBe(15)
 })
 
 test('motion helpers ease, type and sweep', async () => {

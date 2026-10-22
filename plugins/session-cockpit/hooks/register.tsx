@@ -2994,42 +2994,103 @@ export const register: Register = (on, options) => {
       )
     } else if (current === 'theme') {
       const chosen = await read($, theme)
+      const look = THEMES.find(t => t.id === chosen) ?? THEMES[0]!
+      const tint = painter(look.id)
       const swatch = ['claude', 'success', 'warning', 'error', 'suggestion', 'permission']
+      const choose = async (id: string) => {
+        await update($, theme, () => id)
+        try {
+          await $.store.set(THEME_KEY, id)
+        } catch {
+          $.ui.toast('Theme applied for this session; it could not be saved for the next one.')
+        }
+      }
+      // A small band and the pet, drawn in the chosen theme.
+      const nowLook = await $.clock.now()
+      const lifeLook = await read($, petLife)
+      const stLook = petStats(lifeLook, nowLook)
+      const inner = Math.max(16, Math.min(40, width - 4))
+      const gauge = smoothBar(42, inner)
+      const sprite = pet('idle', nowLook, false, PET_WIDTH, stLook.stage, lifeLook.skin, 'fine', lifeLook)
+      const preview = (
+        <Box flexDirection="column" borderStyle="round" borderColor={tint('subtle')} paddingX={1}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text color={tint('claude')} bold>
+              ◆ COCKPIT
+            </Text>
+            <Text color={tint('success')}>● ready</Text>
+          </Box>
+          {sprite.map((row, r) => (
+            <Text key={`theme-pet-${r}`}>
+              {row.map(x => (x.color === '' ? x.text : <Text color={tint(x.color)}>{x.text}</Text>))}
+            </Text>
+          ))}
+          <Text wrap="truncate-end">
+            <Text color={tint('suggestion')} bold>
+              42%
+            </Text>
+            <Text color={tint('subtle')}> context </Text>
+            <Text color={tint('warning')} bold>
+              {' $1.20'}
+            </Text>
+            <Text color={tint('subtle')}> spent </Text>
+            <Text color={tint('error')}>{' ✗ 1'}</Text>
+            <Text color={tint('subtle')}> failed</Text>
+          </Text>
+          <Text wrap="truncate">
+            {gauge.runs.map(r => (
+              <Text color={tint(r.color)}>{r.text}</Text>
+            ))}
+            <Text color={tint('inactive')}>{gauge.rest}</Text>
+          </Text>
+        </Box>
+      )
+      const row = (t: (typeof THEMES)[number]) => {
+        const shade = painter(t.id)
+        const isOn = t.id === chosen
+        return (
+          <Button key={`theme-${t.id}`} plain onPress={() => choose(t.id)}>
+            <Text color={shade(isOn ? 'claude' : 'subtle')} bold={isOn}>
+              {isOn ? '◉ ' : '○ '}
+            </Text>
+            {swatch.map(k => (
+              <Text color={shade(k)}>█</Text>
+            ))}
+            <Text bold={isOn} color={isOn ? shade('claude') : undefined}>
+              {`  ${t.name.padEnd(12)}`}
+            </Text>
+            {isNarrow ? null : <Text color={paint('inactive')}>{t.note}</Text>}
+          </Button>
+        )
+      }
+      const groups = [
+        { title: 'Your Claude Code theme', list: THEMES.filter(t => t.id === 'claude') },
+        { title: 'For dark terminals', list: THEMES.filter(t => t.id !== 'claude' && t.isLight !== true) },
+        { title: 'For light terminals', list: THEMES.filter(t => t.isLight === true) },
+      ]
       body = (
         <Box flexDirection="column" gap={1}>
-          {heading('Theme', 'saved for every session')}
-          {THEMES.map(t => {
-            const tint = painter(t.id)
-            const isOn = t.id === chosen
-            return (
-              <Button
-                key={`theme-${t.id}`}
-                plain
-                onPress={async () => {
-                  await update($, theme, () => t.id)
-                  try {
-                    await $.store.set(THEME_KEY, t.id)
-                  } catch {
-                    $.ui.toast('Theme applied for this session; it could not be saved for the next one.')
-                  }
-                }}
-              >
-                <Text color={tint(isOn ? 'claude' : 'subtle')} bold={isOn}>
-                  {isOn ? '◉ ' : '○ '}
-                </Text>
-                {swatch.map(k => (
-                  <Text color={tint(k)}>██</Text>
-                ))}
-                <Text bold={isOn} color={isOn ? tint('claude') : undefined}>
-                  {`  ${t.name}`}
-                </Text>
-                {isNarrow ? null : <Text color={tint('inactive')}>{`  ${t.note}`}</Text>}
-              </Button>
-            )
-          })}
-          <Text color={paint('inactive')} wrap="wrap">
-            Fixed-color themes are tuned for dark terminals. Claude follows your own light or dark theme.
-          </Text>
+          {heading('Theme', `${look.name} · saved for every session`)}
+          {preview}
+          <Box flexDirection="row" columnGap={1}>
+            <Button
+              key="theme-shuffle"
+              label="⤨ Surprise me"
+              onPress={() => {
+                const others = THEMES.filter(t => t.id !== chosen && t.id !== 'claude')
+                return choose(others[Math.floor(nowLook / 1000) % others.length]!.id)
+              }}
+            />
+            {chosen === 'claude' ? null : <Button key="theme-reset" label="Back to Claude" onPress={() => choose('claude')} />}
+          </Box>
+          {groups.map(g => (
+            <Box key={`theme-group-${g.title}`} flexDirection="column">
+              <Text color={paint('subtle')} bold>
+                {g.title}
+              </Text>
+              {g.list.map(row)}
+            </Box>
+          ))}
         </Box>
       )
     } else {

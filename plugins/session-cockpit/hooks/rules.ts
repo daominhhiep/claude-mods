@@ -432,7 +432,14 @@ export function gradientBar(
   return { runs, rest: '░'.repeat(w - filled) }
 }
 
-export type Theme = { id: string; name: string; note: string; colors: Record<string, string> }
+export type Theme = {
+  id: string
+  name: string
+  note: string
+  colors: Record<string, string>
+  /** Made for a light terminal background; the rest are made for dark ones. */
+  isLight?: boolean
+}
 
 // Each theme maps the Claude Code theme keys the mod paints with to colors of
 // its own; "claude" keeps the keys, so the mod follows the person's theme.
@@ -497,6 +504,55 @@ export const THEMES: Theme[] = [
       suggestion: '#02d7f2', permission: '#b026ff', merged: '#b026ff',
       subtle: '#7a7f9a', inactive: '#4a4e66', text: '#e8f6ff', inverseText: '#0a0a12',
     },
+  },
+  {
+    id: 'dracula',
+    name: 'Dracula',
+    note: 'Purple night with neon pastels',
+    colors: { claude: '#bd93f9', success: '#50fa7b', warning: '#f1fa8c', error: '#ff5555', suggestion: '#8be9fd', permission: '#ff79c6', merged: '#bd93f9', subtle: '#6272a4', inactive: '#44475a', text: '#f8f8f2' },
+  },
+  {
+    id: 'nord',
+    name: 'Nord',
+    note: 'Frosty arctic blues',
+    colors: { claude: '#88c0d0', success: '#a3be8c', warning: '#ebcb8b', error: '#bf616a', suggestion: '#81a1c1', permission: '#b48ead', merged: '#b48ead', subtle: '#7b88a1', inactive: '#4c566a', text: '#eceff4' },
+  },
+  {
+    id: 'gruvbox',
+    name: 'Gruvbox',
+    note: 'Warm retro, like old paper',
+    colors: { claude: '#fe8019', success: '#b8bb26', warning: '#fabd2f', error: '#fb4934', suggestion: '#83a598', permission: '#d3869b', merged: '#d3869b', subtle: '#a89984', inactive: '#665c54', text: '#ebdbb2' },
+  },
+  {
+    id: 'catppuccin',
+    name: 'Catppuccin',
+    note: 'Soft pastels on mocha',
+    colors: { claude: '#cba6f7', success: '#a6e3a1', warning: '#f9e2af', error: '#f38ba8', suggestion: '#89dceb', permission: '#f5c2e7', merged: '#b4befe', subtle: '#9399b2', inactive: '#585b70', text: '#cdd6f4' },
+  },
+  {
+    id: 'tokyo-night',
+    name: 'Tokyo Night',
+    note: 'City lights after dark',
+    colors: { claude: '#7aa2f7', success: '#9ece6a', warning: '#e0af68', error: '#f7768e', suggestion: '#7dcfff', permission: '#bb9af7', merged: '#bb9af7', subtle: '#737aa2', inactive: '#414868', text: '#c0caf5' },
+  },
+  {
+    id: 'rose-pine',
+    name: 'Rosé Pine',
+    note: 'Muted rose and pine',
+    colors: { claude: '#ebbcba', success: '#9ccfd8', warning: '#f6c177', error: '#eb6f92', suggestion: '#c4a7e7', permission: '#c4a7e7', merged: '#ebbcba', subtle: '#908caa', inactive: '#524f67', text: '#e0def4' },
+  },
+  {
+    id: 'sakura',
+    name: 'Sakura',
+    note: 'Cherry blossom pinks',
+    colors: { claude: '#ff8fab', success: '#b5e48c', warning: '#ffd6a5', error: '#ff4d6d', suggestion: '#a2d2ff', permission: '#cdb4db', merged: '#ffc8dd', subtle: '#a5948f', inactive: '#6b5b5e' },
+  },
+  {
+    id: 'paper',
+    name: 'Paper',
+    note: 'Ink on a light background',
+    colors: { claude: '#c15f3c', success: '#2e7d32', warning: '#b26a00', error: '#c62828', suggestion: '#1565c0', permission: '#6a1b9a', merged: '#6a1b9a', subtle: '#6d6d6d', inactive: '#9e9e9e', text: '#1a1a1a', inverseText: '#ffffff' },
+    isLight: true,
   },
 ]
 
