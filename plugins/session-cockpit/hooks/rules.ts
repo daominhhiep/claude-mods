@@ -778,30 +778,36 @@ const PET_SPRITES: Record<PetStage, (p: PetPose) => [string, string, string]> = 
 
 // ── Species ──────────────────────────────────────────────────────────
 
-export type PetRarity = 'common' | 'uncommon' | 'rare' | 'legendary'
+export type PetRarity = 'common' | 'uncommon' | 'rare' | 'legendary' | 'mythic'
 
 export const PET_RARITIES: Record<PetRarity, { name: string; color: string; percent: number }> = {
-  common: { name: 'Common', color: 'subtle', percent: 60 },
+  common: { name: 'Common', color: 'subtle', percent: 59.9 },
   uncommon: { name: 'Uncommon', color: 'success', percent: 25 },
   rare: { name: 'Rare', color: 'suggestion', percent: 12 },
   legendary: { name: 'Legendary', color: 'warning', percent: 3 },
+  mythic: { name: 'Mythic', color: 'claude', percent: 0.1 },
 }
 
-type SpeciesSprites = { baby: (p: PetPose) => [string, string, string]; grown: (p: PetPose) => [string, string, string] }
+type SpeciesSprites = {
+  baby: (p: PetPose) => [string, string, string]
+  grown: (p: PetPose) => [string, string, string]
+  /** A row drawn in its own color whatever the skin: a crown. */
+  accent?: { row: number; color: string }
+}
 
 /** A baby hops a row up; its face and feet are the rest. */
 const hop = (p: PetPose, face: string, feet: string): [string, string, string] =>
   p.up ? [face, feet, '         '] : ['         ', face, feet]
 
-/** What can hatch from the egg, each with its chance in a thousand. */
+/** What can hatch from the egg, each with its chance in ten thousand. */
 export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight: number; sprites: SpeciesSprites | null }[] = [
   // Clawd keeps the original sprites, by stage.
-  { id: 'clawd', name: 'Clawd', rarity: 'common', weight: 300, sprites: null },
+  { id: 'clawd', name: 'Clawd', rarity: 'common', weight: 2000, sprites: null },
   {
     id: 'chick',
     name: 'Chick',
     rarity: 'common',
-    weight: 300,
+    weight: 2000,
     sprites: {
       baby: p => hop(p, p.shut ? '  ▗█▶█▖  ' : '  ▗▛▶▜▖  ', p.apart ? '  ▘   ▝  ' : '   ▘ ▝   '),
       grown: p => [
@@ -815,7 +821,7 @@ export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight:
     id: 'cat',
     name: 'Cat',
     rarity: 'uncommon',
-    weight: 125,
+    weight: 850,
     sprites: {
       baby: p => hop(p, p.shut ? '  ▙███▟  ' : '  ▙▛█▜▟  ', p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '),
       grown: p => [
@@ -829,7 +835,7 @@ export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight:
     id: 'bunny',
     name: 'Bunny',
     rarity: 'uncommon',
-    weight: 125,
+    weight: 850,
     sprites: {
       baby: p => [
         p.up ? '  ▚   ▞  ' : '   ▌ ▐   ',
@@ -847,7 +853,7 @@ export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight:
     id: 'fox',
     name: 'Fox',
     rarity: 'rare',
-    weight: 120,
+    weight: 600,
     sprites: {
       baby: p => hop(p, p.shut ? '  ▙█▄█▟  ' : '  ▙▛▄▜▟  ', p.apart ? ' ▝▘   ▝▘▞' : '  ▝▘ ▝▘▞ '),
       grown: p => [
@@ -861,7 +867,7 @@ export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight:
     id: 'dragon',
     name: 'Dragon',
     rarity: 'legendary',
-    weight: 30,
+    weight: 150,
     sprites: {
       baby: p => hop(p, p.shut ? '  ▚███▞  ' : '  ▚▛█▜▞  ', p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '),
       grown: p => [
@@ -869,6 +875,77 @@ export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight:
         p.up ? '▙▜█████▛▟' : '▟▜█████▛▙',
         p.apart ? ' ▘▘   ▝▝▞' : '  ▘▘ ▝▝ ▞',
       ],
+    },
+  },  {
+    id: 'frog',
+    name: 'Frog',
+    rarity: 'common',
+    weight: 1990,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▗▄ ▄▖  ' : '  ▗▛ ▜▖  ', p.apart ? ' ▀▀   ▀▀ ' : '  ▀▀ ▀▀  '),
+      grown: p => [
+        p.shut ? ' ▗▄▖ ▗▄▖ ' : ' ▗▛▖ ▗▜▖ ',
+        p.up ? '▗▟█████▙▖' : ' ▐█████▌ ',
+        p.apart ? '▀▀     ▀▀' : ' ▀▀   ▀▀ ',
+      ],
+    },
+  },
+  {
+    id: 'penguin',
+    name: 'Penguin',
+    rarity: 'uncommon',
+    weight: 800,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▗███▖  ' : '  ▗▛█▜▖  ', p.apart ? ' ▀▘   ▝▀ ' : '  ▀▘ ▝▀  '),
+      grown: p => [
+        p.shut ? ' ▗█████▖ ' : ' ▗▛███▜▖ ',
+        p.up ? '▝▐█▒▒▒█▌▘' : ' ▐█▒▒▒█▌ ',
+        p.apart ? ' ▀▘   ▝▀ ' : '  ▀▘ ▝▀  ',
+      ],
+    },
+  },
+  {
+    id: 'panda',
+    name: 'Panda',
+    rarity: 'rare',
+    weight: 600,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▗█▄█▖  ' : '  ▗▛▄▜▖  ', p.apart ? ' ▀▀   ▀▀ ' : '  ▀▀ ▀▀  '),
+      grown: p => [
+        p.shut ? '▗▐█▄█▄█▌▖' : '▗▐▛▄█▄▜▌▖',
+        p.up ? '▗▐▓███▓▌▖' : ' ▐▓███▓▌ ',
+        p.apart ? ' ▀▀   ▀▀ ' : '  ▀▀ ▀▀  ',
+      ],
+    },
+  },
+  {
+    id: 'unicorn',
+    name: 'Unicorn',
+    rarity: 'legendary',
+    weight: 150,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▞███▌  ' : '  ▞▛█▜▌  ', p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '),
+      grown: p => [
+        p.shut ? ' ▞▐█████▌' : ' ▞▐▛███▜▌',
+        p.up ? '▚▜█████▛ ' : '▞▜█████▛ ',
+        p.apart ? '▌▌     ▐▐' : ' ▌▌   ▐▐ ',
+      ],
+    },
+  },
+  {
+    id: 'king',
+    name: 'Clawd King',
+    rarity: 'mythic',
+    weight: 10,
+    sprites: {
+      // A golden crown over Clawd's face, arms raised for joy.
+      baby: p => ['   ▙▟▙   ', p.shut ? '  ▐███▌  ' : '  ▐▛█▜▌  ', p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '],
+      grown: p => [
+        ' ▗▙▟▙▟▙▖ ',
+        `${p.up ? '▗' : '▝'}${p.shut ? '▐█████▌' : '▐▛███▜▌'}${p.up ? '▖' : '▘'}`,
+        p.apart ? ' ▀▘   ▝▀ ' : '  ▀▘ ▝▀  ',
+      ],
+      accent: { row: 0, color: 'warning' },
     },
   },
 ]
@@ -879,7 +956,7 @@ export function hatchSpecies(now: number): string {
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
   h ^= h >>> 16
-  let roll = (h >>> 0) % 1000
+  let roll = (h >>> 0) % 10_000
   for (const s of PET_SPECIES) {
     if (roll < s.weight) return s.id
     roll -= s.weight
@@ -1006,6 +1083,7 @@ export function pet(
     if (beat(2000) % 2 === 0) put(0, x + PET_BODY, '?', 'warning')
   }
 
+  const accent = stage === 'egg' ? undefined : PET_SPECIES.find(k => k.id === look.species)?.sprites?.accent
   spriteOf(stage, look.species ?? null)(pose)
     // The face row has its eyes as ▛ then ▜; the body row has them the other way.
     .map(line =>
@@ -1013,7 +1091,10 @@ export function pet(
         ? line
         : line.replace('▛', eyes[0]).replace('▜', eyes[1]),
     )
-    .forEach((line, row) => Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)))
+    .forEach((line, row) => {
+      const color = accent !== undefined && accent.row === row ? accent.color : body
+      Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, color))
+    })
   // A grown pet wears the mark of the way it grew up, where nothing else is.
   const way = PET_PATHS.find(p => p.id === look.path)
   if (way !== undefined && way.mark !== '' && (stage === 'adult' || stage === 'elder')) {
@@ -1105,6 +1186,8 @@ export function newPetLife(now: number): PetLife {
     species: null,
     path: null,
     hours: Array.from({ length: 24 }, () => 0),
+    eggTurns: 0,
+    eggAt: null,
   }
 }
 
@@ -1151,6 +1234,14 @@ export function petLifeFrom(saved: unknown, now: number): PetLife {
       const n = Array.isArray(v.hours) ? v.hours[i] : 0
       return typeof n === 'number' && n > 0 ? Math.floor(n) : 0
     }),
+    // Saves from before new eggs count every turn toward the first egg.
+    eggTurns:
+      typeof v.eggTurns === 'number' && v.eggTurns >= 0
+        ? Math.floor(v.eggTurns)
+        : typeof v.turns === 'number' && v.turns >= 0
+          ? Math.floor(v.turns)
+          : 0,
+    eggAt: typeof v.eggAt === 'number' ? v.eggAt : null,
   }
 }
 
@@ -1162,7 +1253,7 @@ export function feedPet(life: PetLife, now: number): PetLife {
   for (const k of keys.slice(0, Math.max(0, keys.length - MAX_DAYS_KEPT))) delete days[k]
   const hours = life.hours.slice()
   hours[hourOf(now)] = (hours[hourOf(now)] ?? 0) + 1
-  return { ...life, days, hours, lastFedAt: now, turns: life.turns + 1 }
+  return { ...life, days, hours, lastFedAt: now, turns: life.turns + 1, eggTurns: life.eggTurns + 1 }
 }
 
 /** XP needed to reach `level`. */
@@ -1191,7 +1282,7 @@ export function petStats(life: PetLife, now: number): PetStats {
   const level = Math.floor(Math.sqrt(xp / 50)) + 1
 
   const grown = [...PET_STAGES].reverse().find(s => s.id !== 'egg' && activeDays >= s.fromDays)
-  const stage = life.turns < PET_HATCH_TURNS || grown === undefined ? PET_STAGES[0]! : grown
+  const stage = life.eggTurns < PET_HATCH_TURNS || grown === undefined ? PET_STAGES[0]! : grown
   const after = PET_STAGES[PET_STAGES.indexOf(stage) + 1]
   const next =
     stage.id === 'egg'
@@ -1312,6 +1403,24 @@ export function feedAndAward(life: PetLife, now: number): { life: PetLife; earne
   if (stage !== 'egg' && fed.species === null) fed = { ...fed, species: hatchSpecies(now) }
   if ((stage === 'adult' || stage === 'elder') && fed.path === null) fed = { ...fed, path: choosePath(fed, now) }
   return award(life, fed, now, false)
+}
+
+/**
+ * Why a new egg cannot replace the pet at `now`, or null when it can: one a
+ * day, and not while an egg is already waiting to hatch.
+ */
+export function newEggBlock(life: PetLife, now: number): string | null {
+  if (life.species === null) return 'An egg is already waiting to hatch.'
+  if (life.eggAt !== null && dayKey(life.eggAt) === dayKey(now)) return 'One new egg a day. Try again tomorrow.'
+  return null
+}
+
+/**
+ * The pet swapped for a new egg: what hatches and how it grows up are rolled
+ * again; its days, level, achievements and skins stay.
+ */
+export function layNewEgg(life: PetLife, now: number): PetLife {
+  return { ...life, species: null, path: null, eggTurns: 0, eggAt: now }
 }
 
 /** The pet after a pat at `now`, with the petting achievements it newly earned. */
