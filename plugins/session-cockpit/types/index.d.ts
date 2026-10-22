@@ -1,4 +1,4 @@
-export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet'
+export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'skins' | 'trophies'
 
 export type PetLifeStage = 'egg' | 'baby' | 'kid' | 'adult' | 'elder'
 
@@ -17,6 +17,18 @@ export type PetLife = {
   /** Times it has been petted, and when last. */
   pats: number
   lastPattedAt: number | null
+  /** Local calendar day to the pats that day, the last few weeks only. */
+  patDays: Record<string, number>
+  /** What hatched from the egg, one of PET_SPECIES; null while an egg. */
+  species: string | null
+  /** The way it grew up, one of PET_PATHS; null until grown up. */
+  path: string | null
+  /** Turns finished in each local hour of the day, 0 to 23. */
+  hours: number[]
+  /** Turns since the current egg was laid; it hatches at PET_HATCH_TURNS. */
+  eggTurns: number
+  /** When a new egg last replaced the pet, or null if never. */
+  eggAt: number | null
 }
 
 export type PinnedSession = {

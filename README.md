@@ -50,7 +50,7 @@ Tool output stays Claude Code's own. Set `transcriptStyle` to `claude` to leave 
 
 **Pane (`/cockpit`)**
 
-Three cards head every tab: context with its trend, cost with each prompt's share, and working time. Five groups sit on one row (Context, Work, Pins, Pet, Settings), shown as icons with only the open one named when the pane is narrow; Work and Settings have their own tabs below.
+Three cards head every tab: context with its trend, cost with each prompt's share, and working time. Five groups sit on one row (Context, Work, Pins, Pet, Settings), shown as icons with only the open one named when the pane is narrow; Work, Pet and Settings have their own tabs below.
 
 | Group · tab | What it shows |
 | --- | --- |
@@ -60,7 +60,7 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 | Work · Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Work · Diff | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Pins | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
-| Pet | Your pet: stage, level and XP, food, mood, feeling, age and streak, the last 14 days, skins to wear and achievements |
+| Pet | Your pet: species, stage, level and XP, food, bond, stamina, feeling, age and streak, the last 14 days and its evolution; Skins and Achievements are tabs of their own |
 | Settings · Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
 | Settings · Effects | Turn each effect on or off; kept for every session |
 
@@ -68,12 +68,16 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 
 The pet is kept across sessions and grows with how often you use Claude Code. Every finished turn feeds it.
 
+- **Species**: the egg hatches into one of eleven, by chance: Common 59.9% (Clawd, Chick, Frog), Uncommon 25% (Cat, Bunny, Penguin), Rare 12% (Fox, Panda), Legendary 3% (Dragon, Unicorn), Mythic 0.1% (the Clawd King, in a golden crown). A pet that hatched before species keeps being a Clawd.
+- **New egg**: once a day, the Pet tab's ↻ New egg (pressed twice to confirm) swaps the pet for a new egg that hatches after 3 turns into a fresh roll. Its level, days, achievements and skins stay; its evolution is chosen again.
+- **Evolution**: on the day it grows up (7 days of use) it settles on the way your habits shaped it, and wears its mark: Night Owl ☾ (a third of turns 10 pm–5 am), Sprinter » (15 turns a day on average), Sage ∴ (7 days in a row), Cuddly ♡ (30 pats), or All-rounder when no habit stands out. The Pet tab shows how close each one is.
 - **Stages**: an egg hatches after 3 turns, then Baby, Kid (3 days of use), Grown-up (7) and Elder (30).
 - **Level**: each day you use Claude earns 20 XP plus 5 a turn (up to 20 turns a day); a streak of days in a row adds 10 a day.
 - **Food**: full for 4 hours after a turn, then peckish, hungry after a day and starving after three. A hungry pet turns grey and asks for food.
-- **Mood**: up to five dots, from how many of the last seven days you used Claude.
+- **Bond**: up to five hearts for how close you two are. Each of the last seven days you used Claude scores a point, and so does each day you petted it; two points make a heart.
 - **Achievements** (15): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, coming back after three days away, and petting it 10 and 100 times.
 - **Skins**: Classic, plus seven more colors, each unlocked by an achievement; pick one in the Pet tab.
+- **Stamina**: what is left of your five-hour usage limit (the "Current session" bar in `/usage`), with the time it is full again. Below 20% the pet is low on energy (heavy eyes, slower steps); at 0% it is worn out. Shown only on a subscription.
 - **Feelings**: the pet feels your day. Tired after 30 turns today or 75 minutes of work in the last two hours (heavy eyes, slower steps, yawns); worn out after 60 turns or 2½ hours of work in three (it crawls, and falls asleep when you stop); stressed when three tools fail within ten minutes; sleepy from 11 pm to 5 am; bored after half an hour with nothing to do. The Pet tab names the feeling with a tip, and a tired, worn-out or stressed pet tells you once a day. Work time counts this session; turns count every session today.
 - **Petting**: click the pet in the band or the Pet tab, press its ♥ Pet button (`p`), or run `/pat`. Hearts float up for a moment, and a pat soothes a stressed or bored pet for ten minutes (only rest helps a tired one). Resting the pointer on the pet in the band shows a heart.
 - `/pet` shows how it is doing; `/pet Mochi` names it.
