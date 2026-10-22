@@ -905,12 +905,13 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   }
 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-  // No model reading yet, so no second row of chips: the pet still has its
-  // three rows, feet included.
+  // The pet sits on the top border, its feet on the line; with the gauge as
+  // the last row its name and feeling sit on the bottom border.
   const first = await bandText()
   expect(first).not.toContain('opus')
   expect(first).toContain('▐▛███▜▌')
-  expect(first).toContain('▘▘ ▝▝')
+  expect(first).toMatch(/◆ COCKPIT ─+▘▘─▝▝─/)
+  expect(first).toMatch(/· Lv \d+ · Fine ─╯/)
 
   // A failed tool makes it fret.
   const startedAt = state.now
