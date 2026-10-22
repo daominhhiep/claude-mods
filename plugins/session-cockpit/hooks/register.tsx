@@ -66,6 +66,8 @@ import {
   PET_SKINS,
   dayKey,
   feedAndAward,
+  patPet,
+  PET_LOVED_MS,
   petFeeling,
   workIn,
   hasSkin,
@@ -218,7 +220,21 @@ async function feelingOf($: EngineInterface, life: PetLife, now: number): Promis
     work3h: workIn(turns, now, 3 * 3_600_000),
     failures: (await read($, calls)).filter(c => c.status === 'error' && c.startedAt >= now - 600_000).length,
     idleMs: Math.max(0, now - lastEnd),
+    pattedAgo: life.lastPattedAt === null ? undefined : now - life.lastPattedAt,
   })
+}
+
+/** Pets the pet once: hearts for a moment, and any petting achievement it earns. */
+async function patOnce($: EngineInterface): Promise<PetLife> {
+  const now = await $.clock.now()
+  let earned: string[] = []
+  const life = await savePet($, l => {
+    const r = patPet(l, now)
+    earned = r.earned.map(a => `Achievement: ${a.name}`)
+    return r.life
+  })
+  if (earned.length > 0) $.ui.toast(earned.join(' · '))
+  return life
 }
 
 /** True while something moves: a prompt or agent runs, a guard waits, the cache is about to go cold. */
@@ -229,7 +245,10 @@ async function isPlaying($: EngineInterface): Promise<boolean> {
   const b = await read($, burstAt)
   if (b !== null && now - b.at < BURST_MS) return true
   const fl = await read($, flashAt)
-  return fl !== null && now - fl.at < FLASH_MS
+  if (fl !== null && now - fl.at < FLASH_MS) return true
+  // Hearts float for a moment after a pat.
+  const pattedAt = (await read($, petLife)).lastPattedAt
+  return pattedAt !== null && now - pattedAt < PET_LOVED_MS
 }
 
 async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
@@ -478,6 +497,10 @@ export const register: Register = (on, options) => {
       description: 'See how your pet is doing, or name it, e.g. /pet Mochi',
       argumentHint: '[name]',
     })
+    await $.command.register({
+      name: 'pat',
+      description: 'Pet your pet',
+    })
     try {
       const id = await $.session.id()
       await update($, sessionId, () => id)
@@ -580,6 +603,11 @@ export const register: Register = (on, options) => {
     }
     const life = await savePet($, l => ({ ...l, name: name.slice(0, 24) }))
     return { text: `Your pet is now called ${life.name}.` }
+  })
+
+  on('command.run', { command: 'pat' }, async $ => {
+    const life = await patOnce($)
+    return { text: `You pet ${life.name}. ♥ (${life.pats} ${life.pats === 1 ? 'time' : 'times'} so far)` }
   })
 
   on('command.run', { command: 'unpin' }, async $ => {
@@ -989,7 +1017,7 @@ export const register: Register = (on, options) => {
     const left = warmAt === null ? null : warmAt + cacheMs - now
     const status = await read($, pr)
     const live = (await read($, agents)).filter(a => a.endedAt === null)
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const paint = painter(await read($, theme))
 
     const budgetColor =
@@ -1188,6 +1216,7 @@ export const register: Register = (on, options) => {
                 ? lastCall.startedAt + lastCall.ms
                 : null,
             isHungry: lifeStats.hunger === 'hungry' || lifeStats.hunger === 'starving',
+            pattedAt: life.lastPattedAt,
           }),
           now,
           pctShown !== undefined && pctShown >= 75,
@@ -1365,11 +1394,24 @@ export const register: Register = (on, options) => {
               {row}
             </Box>
             {petRows === null ? null : (
-              <Box flexShrink={0}>
-                <Text>
-                  {' '}
-                  {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
-                </Text>
+              <Box key={`pet-yard-${r}`} flexShrink={0} hover={{ scope: 'pet' }}>
+                {r === 0 ? (
+                  // A heart pops up while the pointer rests on the pet.
+                  <Box position="absolute" top={0} right={0} display="none" hover={{ scope: 'pet', display: 'flex' }}>
+                    <Text color={paint('error')}>♥</Text>
+                  </Box>
+                ) : null}
+                {isPetAway ? (
+                  <Text>{` ${(petRows[r] ?? []).map(p => p.text).join('')}`}</Text>
+                ) : (
+                  // A click anywhere on the pet pets it.
+                  <Button key={`pet-touch-${r}`} plain onPress={() => void patOnce($)}>
+                    <Text>
+                      {' '}
+                      {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
+                    </Text>
+                  </Button>
+                )}
               </Box>
             )}
             <Box flexShrink={0}>
@@ -1446,6 +1488,7 @@ export const register: Register = (on, options) => {
     if (!(await read($, effects)).pet) return line
     // The pet runs the width of the chat under the spinner while Claude works.
     const lastCall = (await read($, calls)).at(-1)
+    const life = await read($, petLife)
     const mood = petMood({
       now,
       isWorking: true,
@@ -1455,10 +1498,10 @@ export const register: Register = (on, options) => {
         lastCall !== undefined && lastCall.status === 'error' && lastCall.ms !== null
           ? lastCall.startedAt + lastCall.ms
           : null,
+      pattedAt: life.lastPattedAt,
     })
     const readings = await read($, weather)
     const isSweating = (readings.at(-1)?.percent ?? 0) >= 75
-    const life = await read($, petLife)
     return (
       <Box flexDirection="column">
         {line}
@@ -2264,6 +2307,7 @@ export const register: Register = (on, options) => {
           turnEndedAt: null,
           failedAt: null,
           isHungry: st.hunger === 'hungry' || st.hunger === 'starving',
+          pattedAt: life.lastPattedAt,
         }),
         nowPet,
         false,
@@ -2297,10 +2341,18 @@ export const register: Register = (on, options) => {
           {heading(life.name, `${st.stageName} · level ${st.level}`)}
           <Box flexDirection="column">
             {sprite.map((row, r) => (
-              <Text key={`pet-big-${r}`}>
-                {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
-              </Text>
+              <Button key={`pet-big-${r}`} plain onPress={() => void patOnce($)}>
+                <Text>{row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}</Text>
+              </Button>
             ))}
+            <Box flexDirection="row" gap={2}>
+              <Button key="pet-pat" hotkey="p" plain onPress={() => void patOnce($)}>
+                ♥ Pet
+              </Button>
+              <Text color={paint('inactive')}>
+                {life.pats === 0 ? `${life.name} would like a pat` : `Petted ${life.pats} ${life.pats === 1 ? 'time' : 'times'}`}
+              </Text>
+            </Box>
           </Box>
           <Box flexDirection="column">
             <Text>

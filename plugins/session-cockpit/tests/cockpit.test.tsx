@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, dayKey, feedAndAward, petFeeling, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, dayKey, feedAndAward, patPet, petFeeling, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1047,7 +1047,7 @@ test('the Pet tab shows the pet, its skins and achievements; /pet names it', asy
   expect(await ui.find({ type: 'Text', text: /^MOCHI$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Baby · level/ })).toBeDefined()
   // Hatched, and perhaps an hour-of-day one, as the clock falls in this time zone.
-  expect(await ui.find({ type: 'Text', text: /^[12] of 13$/ }), 'achievements').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^[12] of 15$/ }), 'achievements').toBeDefined()
   // A locked skin says how to earn it and is not worn.
   await ui.press({ key: 'skin-gold' })
   expect(toasts.at(-1)).toContain('Wise old friend')
@@ -1119,4 +1119,58 @@ test('a long day tells you once that the pet is tired', async ($, on) => {
   await ui.press({ key: 'group-pet' })
   expect(await ui.find({ type: 'Text', text: /^Tired$/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('petting draws hearts, soothes a stressed pet and earns friendship', async () => {
+  const now = new Date(2026, 9, 22, 12).getTime()
+  let life = newPetLife(now)
+  for (let i = 0; i < 9; i++) life = patPet(life, now + i).life
+  const tenth = patPet(life, now + 10)
+  expect(tenth.life.pats).toBe(10)
+  expect(tenth.earned.map(a => a.id)).toEqual(['pats-10'])
+  // A pat earns no turn achievements, and feeds nothing.
+  expect(tenth.life.lastFedAt).toBeNull()
+  expect(petMood({ now: now + 1000, isWorking: true, isCold: false, turnEndedAt: null, failedAt: now, pattedAt: now })).toBe('loved')
+  expect(petMood({ now: now + 4000, isWorking: false, isCold: false, turnEndedAt: null, failedAt: null, pattedAt: now })).toBe('idle')
+  const rows = pet('loved', 600, false).flat().map(x => x.text).join('')
+  expect(rows).toContain('♥')
+  const calm = { now, todayTurns: 5, work2h: 0, work3h: 0, failures: 4, idleMs: 0 }
+  expect(petFeeling(calm)).toBe('stressed')
+  expect(petFeeling({ ...calm, pattedAgo: 60_000 })).toBe('fine')
+  expect(petFeeling({ ...calm, failures: 0, idleMs: 3_600_000, pattedAgo: 60_000 })).toBe('fine')
+  // Rest, not pats, cures tiredness.
+  expect(petFeeling({ ...calm, todayTurns: 40, pattedAgo: 60_000 })).toBe('tired')
+})
+
+test('a click on the pet, its button or /pat pets it', async ($, on) => {
+  const state = { now: new Date(2026, 9, 22, 12).getTime() }
+  mock.store(on, { petLife: { ...newPetLife(state.now), pats: 8 } })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('session.usage', () => ({
+    value: { startedAt: state.now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^Petted 8 times$/ })).toBeDefined()
+  await ui.press({ key: 'pet-big-1' })
+  await ui.press({ key: 'pet-pat' })
+  expect(toasts).toContain('Achievement: Good friend')
+  expect(await ui.find({ type: 'Text', text: /^Petted 10 times$/ })).toBeDefined()
+  // Hearts float over the pet for a moment.
+  expect(await ui.find({ type: 'Text', text: /♥/ })).toBeDefined()
+  await ui.unmount()
+
+  const said = (await $.command.run({ command: 'pat', args: '' } as never)) as { text: string }
+  expect(said.text).toBe('You pet Clawd. ♥ (11 times so far)')
 })

@@ -740,13 +740,15 @@ export function burst(
 
 // ── The pet ──────────────────────────────────────────────────────────
 
-export type PetMood = 'idle' | 'work' | 'happy' | 'oops' | 'sleep' | 'sad'
+export type PetMood = 'idle' | 'work' | 'happy' | 'oops' | 'sleep' | 'sad' | 'loved'
 
 /** How many cells the pet's yard takes at the band's right edge. */
 export const PET_WIDTH = 16
 /** How long the pet cheers after a turn, and frets after a failed tool. */
 export const PET_HAPPY_MS = 5_000
 export const PET_OOPS_MS = 3_000
+/** How long hearts float after a pat. */
+export const PET_LOVED_MS = 3_000
 
 const PET_BODY = 9
 
@@ -782,7 +784,9 @@ export function petMood(s: {
   turnEndedAt: number | null
   failedAt: number | null
   isHungry?: boolean
+  pattedAt?: number | null
 }): PetMood {
+  if (s.pattedAt != null && s.now - s.pattedAt < PET_LOVED_MS) return 'loved'
   if (s.failedAt !== null && s.now - s.failedAt < PET_OOPS_MS) return 'oops'
   if (s.turnEndedAt !== null && s.now - s.turnEndedAt < PET_HAPPY_MS && !s.isWorking) return 'happy'
   if (s.isWorking) return 'work'
@@ -858,6 +862,13 @@ export function pet(
     pose.apart = pose.up
     put(0, x + PET_BODY, pose.up ? '✦' : '✧', 'warning')
     put(0, x - 1, pose.up ? '✧' : '✦', 'warning')
+  } else if (mood === 'loved') {
+    // Eyes shut in bliss, a little wiggle, hearts rising one row at a time.
+    pose.shut = true
+    x += beat(250) % 2
+    const rise = beat(400) % 3
+    put(2 - rise, x + PET_BODY, '♥', 'error')
+    put(rise === 0 ? 2 : rise - 1, x - 1, '♥', 'error')
   } else if (mood === 'oops') {
     // Shakes on the spot, red, with an exclamation.
     x += beat(100) % 2 === 0 ? 0 : 1
@@ -947,7 +958,17 @@ export function dayKey(ms: number): string {
 }
 
 export function newPetLife(now: number): PetLife {
-  return { name: 'Clawd', bornAt: now, days: {}, lastFedAt: null, turns: 0, skin: 'classic', achievements: {} }
+  return {
+    name: 'Clawd',
+    bornAt: now,
+    days: {},
+    lastFedAt: null,
+    turns: 0,
+    skin: 'classic',
+    achievements: {},
+    pats: 0,
+    lastPattedAt: null,
+  }
 }
 
 /** A saved pet read back; a missing or broken one starts over as a new egg. */
@@ -972,6 +993,8 @@ export function petLifeFrom(saved: unknown, now: number): PetLife {
         ([id, at]) => PET_ACHIEVEMENTS.some(a => a.id === id) && typeof at === 'number',
       ),
     ) as Record<string, number>,
+    pats: typeof v.pats === 'number' && v.pats >= 0 ? Math.floor(v.pats) : 0,
+    lastPattedAt: typeof v.lastPattedAt === 'number' ? v.lastPattedAt : null,
   }
 }
 
@@ -1051,7 +1074,9 @@ export type PetAchievement = {
   id: string
   name: string
   hint: string
-  /** Whether a turn at `now` that took the pet from `before` to `after` earns it. */
+  /** Earned by petting rather than by a turn. */
+  byPat?: true
+  /** Whether a turn (or a pat) at `now` that took the pet from `before` to `after` earns it. */
   earned: (s: { before: PetLife; after: PetLife; stats: PetStats; now: number }) => boolean
 }
 
@@ -1091,6 +1116,8 @@ export const PET_ACHIEVEMENTS: PetAchievement[] = [
     hint: 'Come back after leaving it hungry for 3 days',
     earned: s => s.before.lastFedAt !== null && s.now - s.before.lastFedAt >= 72 * 3_600_000,
   },
+  { id: 'pats-10', name: 'Good friend', hint: 'Pet it 10 times', byPat: true, earned: s => s.after.pats >= 10 },
+  { id: 'pats-100', name: 'Best friends', hint: 'Pet it 100 times', byPat: true, earned: s => s.after.pats >= 100 },
 ]
 
 /** Each skin: the theme color the pet is painted in, and the achievement that unlocks it. */
@@ -1116,10 +1143,21 @@ export function hasSkin(life: PetLife, id: string): boolean {
  * recorded, and those achievements, in list order.
  */
 export function feedAndAward(life: PetLife, now: number): { life: PetLife; earned: PetAchievement[] } {
-  const after = feedPet(life, now)
+  return award(life, feedPet(life, now), now, false)
+}
+
+/** The pet after a pat at `now`, with the petting achievements it newly earned. */
+export function patPet(life: PetLife, now: number): { life: PetLife; earned: PetAchievement[] } {
+  return award(life, { ...life, pats: life.pats + 1, lastPattedAt: now }, now, true)
+}
+
+function award(life: PetLife, after: PetLife, now: number, byPat: boolean): { life: PetLife; earned: PetAchievement[] } {
   const stats = petStats(after, now)
   const earned = PET_ACHIEVEMENTS.filter(
-    a => after.achievements[a.id] === undefined && a.earned({ before: life, after, stats, now }),
+    a =>
+      (a.byPat === true) === byPat &&
+      after.achievements[a.id] === undefined &&
+      a.earned({ before: life, after, stats, now }),
   )
   if (earned.length === 0) return { life: after, earned }
   return {
@@ -1137,12 +1175,14 @@ export const PET_FEELINGS: Record<PetFeeling, { name: string; color: string; tip
   fine: { name: 'Fine', color: 'success', tip: 'All good.' },
   tired: { name: 'Tired', color: 'warning', tip: 'A short break would help.' },
   exhausted: { name: 'Worn out', color: 'error', tip: 'Time to stop for the day, or at least take a long break.' },
-  stressed: { name: 'Stressed', color: 'error', tip: 'Several tools failed in a row. Step back for a moment?' },
+  stressed: { name: 'Stressed', color: 'error', tip: 'Several tools failed in a row. Step back for a moment, or give it a pat.' },
   sleepy: { name: 'Sleepy', color: 'suggestion', tip: "It's late. Bed soon?" },
-  bored: { name: 'Bored', color: 'subtle', tip: 'Nothing to do for a while. Got a task?' },
+  bored: { name: 'Bored', color: 'subtle', tip: 'Nothing to do for a while. Got a task, or a pat?' },
 }
 
 const MINUTE = 60_000
+/** How long a pat soothes a stressed or bored pet. */
+export const PET_SOOTHE_MS = 10 * MINUTE
 
 /** How much of the last `windowMs` was spent in turns, in ms; a turn still running counts up to now. */
 export function workIn(turns: readonly { startedAt: number; durationMs: number | null }[], now: number, windowMs: number): number {
@@ -1169,12 +1209,16 @@ export function petFeeling(s: {
   failures: number
   /** Time since the last turn ended, or since the session started. */
   idleMs: number
+  /** Time since it was last petted. */
+  pattedAgo?: number
 }): PetFeeling {
+  // A pat soothes stress and boredom for a while; only rest cures tiredness.
+  const isSoothed = s.pattedAgo !== undefined && s.pattedAgo < PET_SOOTHE_MS
   if (s.todayTurns >= 60 || s.work3h >= 150 * MINUTE) return 'exhausted'
-  if (s.failures >= 3) return 'stressed'
+  if (s.failures >= 3 && !isSoothed) return 'stressed'
   if (s.todayTurns >= 30 || s.work2h >= 75 * MINUTE) return 'tired'
   const hour = new Date(s.now).getHours()
   if (hour >= 23 || hour < 5) return 'sleepy'
-  if (s.idleMs >= 30 * MINUTE) return 'bored'
+  if (s.idleMs >= 30 * MINUTE && !isSoothed) return 'bored'
   return 'fine'
 }

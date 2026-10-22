@@ -14,6 +14,9 @@ export type PetLife = {
   skin: string
   /** Achievement id to when it was earned. */
   achievements: Record<string, number>
+  /** Times it has been petted, and when last. */
+  pats: number
+  lastPattedAt: number | null
 }
 
 export type PinnedSession = {

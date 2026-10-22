@@ -72,9 +72,10 @@ The pet is kept across sessions and grows with how often you use Claude Code. Ev
 - **Level**: each day you use Claude earns 20 XP plus 5 a turn (up to 20 turns a day); a streak of days in a row adds 10 a day.
 - **Food**: full for 4 hours after a turn, then peckish, hungry after a day and starving after three. A hungry pet turns grey and asks for food.
 - **Mood**: up to five dots, from how many of the last seven days you used Claude.
-- **Achievements** (13): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, and coming back after three days away.
+- **Achievements** (15): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, coming back after three days away, and petting it 10 and 100 times.
 - **Skins**: Classic, plus seven more colors, each unlocked by an achievement; pick one in the Pet tab.
 - **Feelings**: the pet feels your day. Tired after 30 turns today or 75 minutes of work in the last two hours (heavy eyes, slower steps, yawns); worn out after 60 turns or 2½ hours of work in three (it crawls, and falls asleep when you stop); stressed when three tools fail within ten minutes; sleepy from 11 pm to 5 am; bored after half an hour with nothing to do. The Pet tab names the feeling with a tip, and a tired, worn-out or stressed pet tells you once a day. Work time counts this session; turns count every session today.
+- **Petting**: click the pet in the band or the Pet tab, press its ♥ Pet button (`p`), or run `/pat`. Hearts float up for a moment, and a pat soothes a stressed or bored pet for ten minutes (only rest helps a tired one). Resting the pointer on the pet in the band shows a heart.
 - `/pet` shows how it is doing; `/pet Mochi` names it.
 
 **Guards**
