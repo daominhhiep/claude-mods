@@ -26,7 +26,7 @@ Effects, each turned on or off in Settings · Effects:
 - **Breathing frame** in the last minute before the cache goes cold.
 - **Typing**: each new reply from Claude appears letter by letter, in about a second.
 - **Light around the frame.**
-- **Claude pet** sits on the band's top border, beside the title, its feet on the line, so the rows below keep their full width; the corner under the last row names it with its level and feeling. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare.
+- **Claude pet** sits on the band's top border, beside the title, its feet on the line, so the rows below keep their full width; the corner under the last row names it with its level and feeling. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard; while the pane shows its Pet or Play tab it stays in the yard, so it is not drawn twice); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare.
 - **Light mode** (off by default, Settings · Effects): half the frames while Claude works. Measured in a 160×50 terminal, it took Claude Code's CPU from about 31% to 23% while working and nearly halved what is written to the terminal. Turn all leaves it as it is.
 
 Under another mod's note (such as You should know), or when there is little room, the band folds to one row so nothing scrolls.

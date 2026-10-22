@@ -157,6 +157,11 @@ const GEAR_ICONS: Record<string, string> = { none: '·', bow: '⋈', flower: '�
 // between two frames (petClock), so a frame drawn a little early or late
 // never shows one step twice or skips one.
 let framePhase = 0
+// When the pane last drew the pet (its Pet or Play tab). It redraws at least
+// once a second while open, so a recent one means the pet is on show there,
+// and the chat leaves it out rather than draw it twice.
+let petInPaneAt = 0
+const PET_IN_PANE_MS = 3_000
 const petClock = (now: number) => now - framePhase + FRAME_MS / 2
 const WAVE_EDGE = ['claude', 'warning', 'success', 'suggestion', 'permission', 'error']
 const EFFECTS_KEY = 'effects'
@@ -1351,7 +1356,8 @@ export const register: Register = (on, options) => {
     const lastCall = (await read($, calls)).at(-1)
     // While Claude works the pet is out running in the chat, under the
     // spinner; its yard waits empty.
-    const isPetAway = showPet && redrawTranscript && working2
+    // While the pane shows the pet, it stays here rather than run in the chat.
+    const isPetAway = showPet && redrawTranscript && working2 && now - petInPaneAt >= PET_IN_PANE_MS
     const life = await read($, petLife)
     const lifeStats = petStats(life, now)
     const feeling = showPet ? await feelingOf($, life, now) : 'fine'
@@ -1708,7 +1714,7 @@ export const register: Register = (on, options) => {
         )}
       </Text>
     )
-    if (!(await read($, effects)).pet) return line
+    if (!(await read($, effects)).pet || now - petInPaneAt < PET_IN_PANE_MS) return line
     // The pet runs the width of the chat under the spinner while Claude works.
     const lastCall = (await read($, calls)).at(-1)
     const life = await read($, petLife)
@@ -1861,6 +1867,7 @@ export const register: Register = (on, options) => {
     const paneStyle = themeStyle(paneTheme)
     const paneBox = FRAMES[paneStyle.frame].box
     const current = await read($, tab)
+    petInPaneAt = current === 'pet' || current === 'play' ? await $.clock.now() : 0
     const width = Math.max(24, e.props.bodyColumns)
     const room = Math.max(4, e.props.scroll.bodyRows - 4)
 

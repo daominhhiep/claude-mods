@@ -1017,6 +1017,16 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
     state.now += 700
   }
   expect(Math.max(...seen)).toBeGreaterThan(PET_WIDTH)
+  // With the pane on the Pet tab the pet is drawn there, so it stays home in
+  // the band rather than run in the chat too; another tab sends it back out.
+  const petPane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await petPane.press({ key: 'group-pet' })
+  await petPane.press({ key: 'tab-pet' })
+  expect(await spinText()).not.toContain('▝▜')
+  expect(await bandText()).toContain('▝▜')
+  await petPane.press({ key: 'tab-stats' })
+  expect(await spinText()).toContain('▝▜')
+  await petPane.unmount()
 
   state.now += 4_000
   await $.turn.complete({ turnId: 't1', answer: '', durationMs: state.now - startedAt, isAborted: false, reason: 'answer' })
