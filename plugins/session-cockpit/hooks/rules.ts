@@ -1603,3 +1603,105 @@ export function choosePath(life: PetLife, now: number): string {
   }
   return best
 }
+
+// ── Stats ────────────────────────────────────────────────────────────
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * A calendar of turns, `weeks` columns ending with this week, Sunday on top:
+ * each cell 0 (none) to 4 (busiest), -1 for days still to come; and where
+ * each month starts, by column.
+ */
+export function petHeatmap(
+  days: Record<string, number>,
+  now: number,
+  weeks: number,
+): { cells: number[][]; months: { col: number; name: string }[] } {
+  const today = new Date(now)
+  const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay())
+  const first = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() - (weeks - 1) * 7)
+  const at = (col: number, row: number) => new Date(first.getFullYear(), first.getMonth(), first.getDate() + col * 7 + row)
+  const counts = Array.from({ length: weeks }, (_, col) =>
+    Array.from({ length: 7 }, (_, row) => {
+      const d = at(col, row)
+      return d.getTime() > now ? -1 : (days[dayKey(d.getTime())] ?? 0)
+    }),
+  )
+  const max = Math.max(1, ...counts.flat())
+  const cells = counts.map(col => col.map(n => (n <= 0 ? n : Math.min(4, Math.max(1, Math.ceil((n / max) * 4))))))
+  const months: { col: number; name: string }[] = []
+  for (let col = 0; col < weeks; col++) {
+    const month = at(col, 0).getMonth()
+    if (col === 0 || month !== at(col - 1, 0).getMonth()) months.push({ col, name: MONTHS[month]! })
+  }
+  return { cells, months }
+}
+
+export type PetRange = 'all' | 'month' | 'week'
+
+/** The pet's record over the last 7 or 30 days, or all time. */
+export function petRangeStats(
+  life: PetLife,
+  now: number,
+  range: PetRange,
+): {
+  turns: number
+  activeDays: number
+  spanDays: number
+  mostActive: { day: string; turns: number } | null
+  longestStreak: number
+  pats: number
+} {
+  const allKeys = Object.keys(life.days).filter(k => (life.days[k] ?? 0) > 0).sort()
+  const firstKey = allKeys[0]
+  const span =
+    range === 'week'
+      ? 7
+      : range === 'month'
+        ? 30
+        : firstKey === undefined
+          ? 1
+          : Math.max(1, Math.round((Date.parse(dayKey(now)) - Date.parse(firstKey)) / DAY_MS) + 1)
+  const inRange = Array.from({ length: span }, (_, i) => dayKey(now - (span - 1 - i) * DAY_MS))
+  let longest = 0
+  let run = 0
+  let mostActive: { day: string; turns: number } | null = null
+  let turns = 0
+  let activeDays = 0
+  let pats = 0
+  for (const k of inRange) {
+    const n = life.days[k] ?? 0
+    turns += n
+    pats += life.patDays[k] ?? 0
+    if (n > 0) {
+      activeDays++
+      run++
+      longest = Math.max(longest, run)
+      if (mostActive === null || n > mostActive.turns) mostActive = { day: k, turns: n }
+    } else run = 0
+  }
+  return {
+    turns,
+    activeDays,
+    spanDays: span,
+    mostActive,
+    longestStreak: longest,
+    pats: range === 'all' ? Math.max(pats, life.pats) : pats,
+  }
+}
+
+/** The hour of the day with the most turns, or null before any. */
+export function favoriteHour(life: PetLife): number | null {
+  let best: number | null = null
+  life.hours.forEach((n, h) => {
+    if (n > 0 && (best === null || n > (life.hours[best] ?? 0))) best = h
+  })
+  return best
+}
+
+/** A local calendar day as "Sep 23". */
+export function shortDay(key: string): string {
+  const [, m, d] = key.split('-')
+  return `${MONTHS[Number(m) - 1] ?? ''} ${Number(d)}`
+}
