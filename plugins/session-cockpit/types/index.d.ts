@@ -1,4 +1,20 @@
-export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config'
+export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet'
+
+export type PetLifeStage = 'egg' | 'baby' | 'kid' | 'adult' | 'elder'
+
+/** The pet kept across sessions: its name, and the turns of each day it was looked after. */
+export type PetLife = {
+  name: string
+  bornAt: number
+  /** Local calendar day, YYYY-MM-DD, to the turns that day. */
+  days: Record<string, number>
+  lastFedAt: number | null
+  turns: number
+  /** The skin it wears, one of PET_SKINS. */
+  skin: string
+  /** Achievement id to when it was earned. */
+  achievements: Record<string, number>
+}
 
 export type PinnedSession = {
   id: string
@@ -140,6 +156,7 @@ declare module 'claude-code' {
         ring: boolean
         pet: boolean
       }
+      petLife: PetLife
       burst: { at: number; text: string } | null
       flash: { at: number; percent: number } | null
     }
