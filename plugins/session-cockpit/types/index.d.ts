@@ -25,6 +25,10 @@ export type PetLife = {
   path: string | null
   /** Turns finished in each local hour of the day, 0 to 23. */
   hours: number[]
+  /** Turns since the current egg was laid; it hatches at PET_HATCH_TURNS. */
+  eggTurns: number
+  /** When a new egg last replaced the pet, or null if never. */
+  eggAt: number | null
 }
 
 export type PinnedSession = {

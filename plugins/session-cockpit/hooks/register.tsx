@@ -70,6 +70,8 @@ import {
   dayKey,
   feedAndAward,
   patPet,
+  layNewEgg,
+  newEggBlock,
   petStamina,
   PET_LOVED_MS,
   petFeeling,
@@ -217,6 +219,9 @@ async function savePet($: EngineInterface, change: (life: PetLife) => PetLife): 
 
 // When this session started, so a pet left alone from the start gets bored too.
 let sessionStartedAt = 0
+// When the New egg button was first pressed, so a second press soon after confirms.
+let newEggAskedAt = 0
+
 // The feelings already announced, by day, so each is toasted once a day.
 const feltToday = new Set<string>()
 
@@ -2380,7 +2385,7 @@ export const register: Register = (on, options) => {
               : { ch: '█', color: 'success' }
       const growth =
         st.stage === 'egg'
-          ? `Hatches after ${Math.max(1, PET_HATCH_TURNS - life.turns)} more ${PET_HATCH_TURNS - life.turns === 1 ? 'turn' : 'turns'}`
+          ? `Hatches after ${Math.max(1, PET_HATCH_TURNS - life.eggTurns)} more ${PET_HATCH_TURNS - life.eggTurns === 1 ? 'turn' : 'turns'}`
           : st.next === null
             ? 'Fully grown'
             : `${st.next.name} in ${st.next.days} more ${st.next.days === 1 ? 'day' : 'days'} of use`
@@ -2398,7 +2403,7 @@ export const register: Register = (on, options) => {
               </Text>
               {(Object.keys(PET_RARITIES) as (keyof typeof PET_RARITIES)[]).map(r => (
                 <Text key={`odds-${r}`} wrap="truncate-end">
-                  <Text color={paint(PET_RARITIES[r].color)} bold>{`${PET_RARITIES[r].percent}%`.padEnd(5)}</Text>
+                  <Text color={paint(PET_RARITIES[r].color)} bold>{`${PET_RARITIES[r].percent}%`.padEnd(6)}</Text>
                   <Text>{PET_RARITIES[r].name.padEnd(10)}</Text>
                   <Text color={paint('inactive')}>
                     {PET_SPECIES.filter(k => k.rarity === r)
@@ -2579,6 +2584,38 @@ export const register: Register = (on, options) => {
             </Text>
           </Box>
           {evolution}
+          {species === undefined ? null : (
+            <Box flexDirection="column">
+              <Button
+                key="pet-new-egg"
+                plain
+                onPress={async () => {
+                  const at = await $.clock.now()
+                  const block = newEggBlock(await read($, petLife), at)
+                  if (block !== null) {
+                    $.ui.toast(block)
+                    return
+                  }
+                  // A rare pet is easy to lose: the swap takes a second press.
+                  if (at - newEggAskedAt > 5_000) {
+                    newEggAskedAt = at
+                    $.ui.toast(
+                      `Press New egg again to swap ${life.name} the ${species.name} for a new egg. Level, days, achievements and skins stay.`,
+                    )
+                    return
+                  }
+                  newEggAskedAt = 0
+                  await savePet($, l => layNewEgg(l, at))
+                  $.ui.toast(`A new egg! It hatches after ${PET_HATCH_TURNS} turns into whatever chance brings.`)
+                }}
+              >
+                ↻ New egg
+              </Button>
+              <Text color={paint('inactive')} wrap="wrap">
+                Swap it for a new egg to try for another species, once a day.
+              </Text>
+            </Box>
+          )}
           <Text color={paint('inactive')} wrap="wrap">
             {isOn
               ? 'Every turn feeds it. Each day you use Claude helps it grow, and days in a row earn extra XP. Name it with /pet and a name.'
