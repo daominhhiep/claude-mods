@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, dayKey, feedAndAward, petFeeling, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -982,7 +982,12 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(st.activeDays).toBe(7)
   expect(st.streak).toBe(7)
   expect(st.weekDays).toBe(7)
-  expect(st.hearts).toBe(5)
+  // Seven days of use make three and a half hearts; pats on three of them fill the rest.
+  expect(st.bond).toBe(4)
+  let petted = life
+  for (const d of [4, 5, 6]) petted = patPet(petted, start + d * day).life
+  expect(petStats(petted, now).patWeekDays).toBe(3)
+  expect(petStats(petted, now).bond).toBe(5)
   expect(st.level).toBeGreaterThan(1)
   expect(earned).toContain('streak-3')
   expect(earned).toContain('streak-7')
@@ -1035,19 +1040,22 @@ test('the Pet tab shows the pet, its skins and achievements; /pet names it', asy
     await $.turn.start({ text: id, turnId: id })
     await $.turn.complete({ turnId: id, answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
   }
-  expect(toasts.some(t => t.includes('Clawd hatched!') && t.includes('Achievement: Hatched'))).toBe(true)
+  expect(toasts.some(t => /^Clawd hatched: an? (common|uncommon|rare|legendary) \w+!/.test(t) && t.includes('Achievement: Hatched'))).toBe(true)
 
   const named = (await $.command.run({ command: 'pet', args: 'Mochi' } as never)) as { text: string }
   expect(named.text).toBe('Your pet is now called Mochi.')
   const shown = (await $.command.run({ command: 'pet', args: '' } as never)) as { text: string }
-  expect(shown.text).toMatch(/^Mochi is a baby at level/)
+  expect(shown.text).toMatch(/^Mochi is a baby \w+ at level/)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-pet' })
   expect(await ui.find({ type: 'Text', text: /^MOCHI$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Baby · level/ })).toBeDefined()
+  // Achievements and skins have tabs of their own.
+  await ui.press({ key: 'tab-trophies' })
   // Hatched, and perhaps an hour-of-day one, as the clock falls in this time zone.
-  expect(await ui.find({ type: 'Text', text: /^[12] of 13$/ }), 'achievements').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^[12] of 15$/ }), 'achievements').toBeDefined()
+  await ui.press({ key: 'tab-skins' })
   // A locked skin says how to earn it and is not worn.
   await ui.press({ key: 'skin-gold' })
   expect(toasts.at(-1)).toContain('Wise old friend')
@@ -1118,5 +1126,212 @@ test('a long day tells you once that the pet is tired', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-pet' })
   expect(await ui.find({ type: 'Text', text: /^Tired$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('petting draws hearts, soothes a stressed pet and earns friendship', async () => {
+  const now = new Date(2026, 9, 22, 12).getTime()
+  let life = newPetLife(now)
+  for (let i = 0; i < 9; i++) life = patPet(life, now + i).life
+  const tenth = patPet(life, now + 10)
+  expect(tenth.life.pats).toBe(10)
+  expect(tenth.earned.map(a => a.id)).toEqual(['pats-10'])
+  // A pat earns no turn achievements, and feeds nothing.
+  expect(tenth.life.lastFedAt).toBeNull()
+  expect(petMood({ now: now + 1000, isWorking: true, isCold: false, turnEndedAt: null, failedAt: now, pattedAt: now })).toBe('loved')
+  expect(petMood({ now: now + 4000, isWorking: false, isCold: false, turnEndedAt: null, failedAt: null, pattedAt: now })).toBe('idle')
+  const rows = pet('loved', 600, false).flat().map(x => x.text).join('')
+  expect(rows).toContain('♥')
+  const calm = { now, todayTurns: 5, work2h: 0, work3h: 0, failures: 4, idleMs: 0 }
+  expect(petFeeling(calm)).toBe('stressed')
+  expect(petFeeling({ ...calm, pattedAgo: 60_000 })).toBe('fine')
+  expect(petFeeling({ ...calm, failures: 0, idleMs: 3_600_000, pattedAgo: 60_000 })).toBe('fine')
+  // Rest, not pats, cures tiredness.
+  expect(petFeeling({ ...calm, todayTurns: 40, pattedAgo: 60_000 })).toBe('tired')
+})
+
+test('a click on the pet, its button or /pat pets it', async ($, on) => {
+  const state = { now: new Date(2026, 9, 22, 12).getTime() }
+  mock.store(on, { petLife: { ...newPetLife(state.now), pats: 8 } })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('session.usage', () => ({
+    value: { startedAt: state.now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^Petted 8 times$/ })).toBeDefined()
+  await ui.press({ key: 'pet-big-1' })
+  await ui.press({ key: 'pet-pat' })
+  expect(toasts).toContain('Achievement: Good friend')
+  expect(await ui.find({ type: 'Text', text: /^Petted 10 times$/ })).toBeDefined()
+  // Hearts float over the pet for a moment.
+  expect(await ui.find({ type: 'Text', text: /♥/ })).toBeDefined()
+  await ui.unmount()
+
+  const said = (await $.command.run({ command: 'pat', args: '' } as never)) as { text: string }
+  expect(said.text).toBe('You pet Clawd. ♥ (11 times so far)')
+})
+
+test('stamina follows the five-hour usage limit and wears the pet down', async ($, on) => {
+  expect(petStamina([])).toBeNull()
+  expect(petStamina([{ kind: 'seven_day', percentUsed: 20 }])).toBeNull()
+  expect(petStamina([{ kind: 'five_hour', percentUsed: 36, resetsAt: '2026-10-22T07:19:00Z' }])).toEqual({
+    percent: 64,
+    refillsAt: Date.parse('2026-10-22T07:19:00Z'),
+  })
+  expect(petStamina([{ kind: 'five_hour', percentUsed: 104 }])).toEqual({ percent: 0, refillsAt: null })
+  const now = new Date(2026, 9, 22, 12).getTime()
+  const calm = { now, todayTurns: 5, work2h: 0, work3h: 0, failures: 0, idleMs: 0 }
+  expect(petFeeling({ ...calm, stamina: 64 })).toBe('fine')
+  expect(petFeeling({ ...calm, stamina: 15 })).toBe('drained')
+  expect(petFeeling({ ...calm, stamina: 0 })).toBe('exhausted')
+  expect(petFeeling({ ...calm, stamina: null })).toBe('fine')
+
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: now,
+      context: { window: 200_000 },
+      rateLimits: [{ kind: 'five_hour', percentUsed: 85, resetsAt: new Date(now + 3_600_000).toISOString() }],
+      cost: { usd: 0 },
+    },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^ 15%$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ · full again at 13:00$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Low on energy$/ })).toBeDefined()
+  await ui.unmount()
+  const said = (await $.command.run({ command: 'pet', args: '' } as never)) as { text: string }
+  expect(said.text).toContain('15% stamina')
+})
+
+test('eggs hatch into species by rarity, and grown pets take the way of their habits', async () => {
+  // Rolls follow the rarity table: 59.9% common, 25% uncommon, 12% rare, 3% legendary, 0.1% mythic.
+  const n: Record<string, number> = {}
+  const rolls = 200_000
+  for (let i = 0; i < rolls; i++) {
+    const k = hatchSpecies(1_700_000_000_000 + i * 7919)
+    n[k] = (n[k] ?? 0) + 1
+  }
+  const share = (...ids: string[]) => ids.reduce((a, k) => a + (n[k] ?? 0), 0) / rolls
+  expect(Math.abs(share('clawd', 'chick', 'frog') - 0.599)).toBeLessThan(0.01)
+  expect(Math.abs(share('dragon', 'unicorn') - 0.03)).toBeLessThan(0.005)
+  expect(share('king')).toBeGreaterThan(0.0005)
+  expect(share('king')).toBeLessThan(0.0015)
+  // The Clawd King wears a golden crown whatever its skin.
+  const king = pet('idle', 600, false, PET_WIDTH, 'adult', 'mint', 'fine', { species: 'king' })
+  expect(king[0]!.some(x => x.text.includes('▙▟▙') && x.color === 'warning')).toBe(true)
+  expect(king[1]!.some(x => x.text.includes('▐▛███▜▌') && x.color === 'success')).toBe(true)
+  // Every species draws nine cells wide and gets its eyes swapped by feelings.
+  for (const s of PET_SPECIES) {
+    for (const stage of ['baby', 'kid', 'adult'] as const) {
+      const rows = pet('work', 600, false, PET_WIDTH, stage, 'classic', 'tired', { species: s.id })
+      expect(rows.every(r => r.reduce((w, x) => w + Array.from(x.text).length, 0) === PET_WIDTH)).toBe(true)
+      expect(rows.flat().map(x => x.text).join(''), `${s.id} ${stage}`).toContain('▀')
+    }
+  }
+  // The egg hatches into a species on its third turn.
+  const start = new Date(2026, 9, 1, 12).getTime()
+  let life = newPetLife(start)
+  for (let i = 0; i < 3; i++) life = feedAndAward(life, start + i * 60_000).life
+  expect(life.species).toBe(hatchSpecies(start + 2 * 60_000))
+  expect(life.hours[12]).toBe(3)
+  // An old save that had hatched stays a Clawd; an old egg waits for its roll.
+  expect(petLifeFrom({ turns: 50 }, start).species).toBe('clawd')
+  expect(petLifeFrom({ turns: 1 }, start).species).toBeNull()
+  // Seven days, mostly at night: a Night Owl, settled on the day it grows up.
+  for (let d = 1; d < 7; d++) {
+    for (let i = 0; i < 3; i++) life = feedAndAward(life, new Date(2026, 9, 1 + d, 23, i).getTime()).life
+    expect(life.path).toBe(d < 6 ? null : 'owl')
+  }
+  expect(choosePath(newPetLife(start), start)).toBe('balanced')
+  expect(choosePath({ ...newPetLife(start), pats: 40 }, start)).toBe('cuddly')
+  // The way it grew shows as a mark beside it.
+  const owl = pet('idle', 600, false, PET_WIDTH, 'adult', 'classic', 'fine', { path: 'owl' })
+  expect(owl.flat().some(x => x.text.includes('☾'))).toBe(true)
+})
+
+test('the Pet tab shows the odds in the egg and where the pet is heading', async ($, on) => {
+  const now = new Date(2026, 9, 22, 12).getTime()
+  mock.store(on, { petLife: newPetLife(now) })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.usage', () => ({ value: { startedAt: now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } } }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^3%\s+$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Dragon, Unicorn$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^0\.1%\s+$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Clawd King$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a new egg rolls the species again, once a day, after a second press', async ($, on) => {
+  const now = new Date(2026, 9, 22, 12).getTime()
+  const grown = {
+    ...newPetLife(now - 10 * 86_400_000),
+    species: 'cat',
+    path: 'sage',
+    turns: 40,
+    eggTurns: 40,
+    days: { [dayKey(now)]: 5 },
+    achievements: { hatched: now - 9 * 86_400_000 },
+  }
+  // Pure rules: kept progress, a fresh egg, one a day, none while an egg waits.
+  const egg = layNewEgg(grown, now)
+  expect([egg.species, egg.path, egg.eggTurns, egg.turns]).toEqual([null, null, 0, 40])
+  expect(petStats(egg, now).stage).toBe('egg')
+  expect(newEggBlock(grown, now)).toBeNull()
+  expect(newEggBlock(egg, now)).toContain('already')
+  let hatched = egg
+  for (let i = 1; i <= 3; i++) hatched = feedAndAward(hatched, now + i * 60_000).life
+  expect(hatched.species).toBe(hatchSpecies(now + 3 * 60_000))
+  expect(newEggBlock(hatched, now + 4 * 60_000)).toContain('tomorrow')
+  expect(newEggBlock(hatched, now + 86_400_000)).toBeNull()
+
+  mock.store(on, { petLife: grown })
+  const state = { now }
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('session.usage', () => ({ value: { startedAt: now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } } }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  await ui.press({ key: 'pet-new-egg' })
+  expect(toasts.at(-1)).toContain('Press New egg again to swap Clawd the Cat')
+  state.now += 2_000
+  await ui.press({ key: 'pet-new-egg' })
+  expect(toasts.at(-1)).toContain('A new egg!')
+  expect(await ui.find({ type: 'Text', text: /^Hatches after 3 more turns$/ })).toBeDefined()
   await ui.unmount()
 })
