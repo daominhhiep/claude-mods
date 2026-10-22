@@ -26,7 +26,7 @@ Effects, each turned on or off in Settings · Effects:
 - **Breathing frame** in the last minute before the cache goes cold.
 - **Typing**: each new reply from Claude appears letter by letter, in about a second.
 - **Light around the frame.**
-- **Claude pet** lives at the band's right edge. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare, with or without the model row.
+- **Claude pet** sits on the band's top border, beside the title, its feet on the line, so the rows below keep their full width; the corner under the last row names it with its level and feeling. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare.
 
 Under another mod's note (such as You should know), or when there is little room, the band folds to one row so nothing scrolls.
 
@@ -59,7 +59,7 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 | Work · Agents | Live tree of subagents: status, duration, tool count, tokens in and out, share read from cache, the tool running now |
 | Work · Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Work · Diff | Each file edit as a diff, step by step (Prev / Next / Latest) |
-| Pins | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
+| Pins | Every Claude Code session open on this computer, whatever the project (working ones first, with its project and when it started; terminal only, read from each session's record under `~/.claude/sessions`), then pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`; a pin already open elsewhere says so instead) |
 | Pet | Five tabs. **Pet**: species, stage, level and XP, food, bond, stamina, feeling, age and streak. **Stats**: a year of turns as a calendar (a column a week, Less → More) and, for all time or the last 7 or 30 days, turns, active days, most active day, longest and current streak, favorite hour and pats. **Evolution**: the hatch odds with its species marked, New egg, and where it is heading. **Skins** and **Achievements** |
 | Settings · Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
 | Settings · Effects | Turn each effect on or off; kept for every session |

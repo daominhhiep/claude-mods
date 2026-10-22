@@ -193,6 +193,48 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
 // The tab last open in each group, so a group opens where it was left.
 const lastInGroup = new Map<string, CockpitTab>()
 
+/** A Claude Code session open on this computer, as its own record says. */
+type LiveSession = { pid: number; id: string; cwd: string; name: string; isBusy: boolean; startedAt: number }
+
+// Every open Claude Code session keeps a small record under ~/.claude/sessions,
+// named by its process id; a record whose process is gone is left out. Read
+// at most every few seconds, and only while the Pins tab is open.
+const LIVE_SCRIPT =
+  'for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do ' +
+  'p=$(basename "$f" .json); kill -0 "$p" 2>/dev/null && { tr -d "\\n" < "$f"; echo; }; done; true'
+const LIVE_EVERY_MS = 5_000
+let liveSeen: { at: number; isKnown: boolean; list: LiveSession[] } = { at: -Infinity, isKnown: false, list: [] }
+
+async function liveSessions($: EngineInterface, now: number): Promise<typeof liveSeen> {
+  if (now - liveSeen.at < LIVE_EVERY_MS) return liveSeen
+  liveSeen = { ...liveSeen, at: now }
+  try {
+    const ran = await $.process.run(['sh', '-c', LIVE_SCRIPT], { timeoutMs: 3000 })
+    const list = ran.stdout.split('\n').flatMap((line): LiveSession[] => {
+      try {
+        const v = JSON.parse(line) as Record<string, unknown>
+        if (typeof v.sessionId !== 'string' || typeof v.cwd !== 'string' || typeof v.pid !== 'number') return []
+        return [
+          {
+            pid: v.pid,
+            id: v.sessionId,
+            cwd: v.cwd,
+            name: typeof v.name === 'string' && v.name !== '' ? v.name : baseName(v.cwd),
+            isBusy: v.status === 'busy',
+            startedAt: typeof v.startedAt === 'number' ? v.startedAt : now,
+          },
+        ]
+      } catch {
+        return []
+      }
+    })
+    liveSeen = { at: now, isKnown: true, list }
+  } catch {
+    // No commands on this surface: the list is not known here.
+  }
+  return liveSeen
+}
+
 async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void> {
   await update($, pins, () => list)
   try {
@@ -1253,13 +1295,14 @@ export const register: Register = (on, options) => {
     const inner = W - 4
     const working2 = isRunning || e.props.isWorking
 
-    // The pet lives at the right edge of the full frame when there is room to
-    // spare; the rows narrow to make way for its yard, and a blank row stands
-    // in for one the band has nothing to show in, so the pet always fits.
+    // The pet sits on the frame's top border, beside the title, its feet on
+    // the line; the rows below keep the full width. Its yard widens with the
+    // band, leaving the right end of the border to the status.
     const hasGauge = pctShown !== undefined && e.props.maxRows >= 5
     const hasSecond = secondChips.length > 0 && e.props.maxRows >= 4
     const showPet = fx.pet && e.props.maxRows >= 7 && inner >= 60
-    const body = showPet ? inner - PET_WIDTH - 1 : inner
+    const yardW = Math.max(PET_WIDTH, Math.min(28, W - 44))
+    const body = inner
     const lastCall = (await read($, calls)).at(-1)
     // While Claude works the pet is out running in the chat, under the
     // spinner; its yard waits empty.
@@ -1268,7 +1311,7 @@ export const register: Register = (on, options) => {
     const lifeStats = petStats(life, now)
     const feeling = showPet ? await feelingOf($, life, now) : 'fine'
     const petRows = isPetAway
-      ? [0, 1, 2].map(() => [{ text: ' '.repeat(PET_WIDTH), color: '' }])
+      ? [0, 1, 2].map(() => [{ text: ' '.repeat(yardW), color: '' }])
       : showPet
       ? pet(
           petMood({
@@ -1285,7 +1328,7 @@ export const register: Register = (on, options) => {
           }),
           now,
           pctShown !== undefined && pctShown >= 75,
-          PET_WIDTH,
+          yardW,
           lifeStats.stage,
           life.skin,
           feeling,
@@ -1331,8 +1374,22 @@ export const register: Register = (on, options) => {
     if (hasSecond) {
       rows.push(<Text wrap="truncate-end">{spaced(secondChips)}</Text>)
     }
-    while (showPet && rows.length < 3) rows.push(<Text> </Text>)
     const R = rows.length
+    // The corner under the last row of chips names the pet and how it is;
+    // when the last row is the gauge, the name sits on the bottom border.
+    const caption: RenderChildren | null = showPet && !isBoom ? (
+      <Text>
+        <Text color={paint('claude')} bold>
+          {life.name}
+        </Text>
+        <Text color={paint('inactive')}>{` · Lv ${lifeStats.level} · `}</Text>
+        <Text color={paint(PET_FEELINGS[feeling].color)}>{PET_FEELINGS[feeling].name}</Text>
+        <Text color={paint('inactive')}>{isPetAway ? ' · out running' : ''}</Text>
+      </Text>
+    ) : null
+    const lastIsGauge = hasGauge && !hasSecond && R > 1
+    const captionInRow = caption !== null && !lastIsGauge
+    const captionRow = captionInRow ? R - 1 : -1
     if (isBoom && boom !== null) {
       // The firework takes the rows for its two seconds.
       const grid = burst(boomSince, body, R, Math.floor(boom.at / 1000))
@@ -1410,6 +1467,16 @@ export const register: Register = (on, options) => {
         <Text color={paint('success')}>● ready</Text>
       )
     const head: Cell[] = [...Array.from('╭─ ').map((ch, col) => ({ ch, color: edge(col) })), ...titleCells]
+    // The pet's feet stand on the border: where they leave a gap, the line runs on.
+    const yardAt = head.length + 2
+    const feet: Cell[] =
+      petRows === null
+        ? []
+        : [{ ch: '─', color: edge(head.length + 1) }].concat(
+            (petRows[2] ?? []).flatMap(p => Array.from(p.text).map(ch => ({ ch, color: p.color }))).map((c, k) =>
+              c.ch === ' ' ? { ch: '─', color: edge(yardAt + k) } : c,
+            ),
+          )
     const dashCells = (from: number, count: number, at: (col: number) => number) =>
       Array.from({ length: Math.max(0, count) }, (_, k) => ({ ch: '─', color: edge(at(from + k)) }))
     // The dashes stretch or shrink to the room the engine gives the line, so
@@ -1419,10 +1486,12 @@ export const register: Register = (on, options) => {
     const top = (
       <Box flexDirection="row">
         <Box flexShrink={0}>
-          <Text>{draw(head)} </Text>
+          <Text>
+            {draw(head)} {draw(feet)}
+          </Text>
         </Box>
         <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-          <Text>{draw(dashCells(head.length + 1, W, col => col))}</Text>
+          <Text>{draw(dashCells(head.length + 1 + feet.length, W, col => col))}</Text>
         </Box>
         <Box flexShrink={0}>
           <Text>
@@ -1443,13 +1512,52 @@ export const register: Register = (on, options) => {
           <Text>{draw(dashCells(1, W, col => W + R + (W - 1 - col)))}</Text>
         </Box>
         <Box flexShrink={0}>
-          <Text color={paint(edge(W + R))}>╯</Text>
+          <Text>
+            {caption !== null && !captionInRow ? <Text> {caption} </Text> : null}
+            <Text color={paint(edge(W + R + 1))}>{caption !== null && !captionInRow ? '─' : ''}</Text>
+            <Text color={paint(edge(W + R))}>╯</Text>
+          </Text>
         </Box>
       </Box>
     )
 
+    // The pet's body above the border, its feet drawn into it. A click
+    // anywhere on it pets it, where the surface can tell.
+    const perch =
+      petRows === null ? null : (
+        <Box flexDirection="row" hover={{ scope: 'pet' }}>
+          <Text>{' '.repeat(yardAt)}</Text>
+          <Box flexShrink={0} width={yardW}>
+            {/* A heart pops up while the pointer rests on the pet. */}
+            <Box position="absolute" top={0} right={0} display="none" hover={{ scope: 'pet', display: 'flex' }}>
+              <Text color={paint('error')}>♥</Text>
+            </Box>
+            {isPetAway || Client === undefined ? (
+              <Box flexDirection="column">
+                {[0, 1].map(r => (
+                  <Text key={`pet-yard-${r}`}>
+                    {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
+                  </Text>
+                ))}
+              </Box>
+            ) : (
+              <Client
+                key="pet-touch"
+                module="./pet-touch.tsx"
+                width={yardW}
+                props={{
+                  rows: [0, 1].map(r =>
+                    (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) })),
+                  ),
+                }}
+              />
+            )}
+          </Box>
+        </Box>
+      )
     const frameBox = (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={perch === null ? 1 : 0}>
+        {perch}
         {top}
         {rows.map((row, r) => (
           <Box key={`row-${r}`} flexDirection="row">
@@ -1459,36 +1567,11 @@ export const register: Register = (on, options) => {
             <Box flexGrow={1} flexShrink={1} overflow="hidden">
               {row}
             </Box>
-            {petRows === null ? null : (
-              <Box key={`pet-yard-${r}`} flexShrink={0} hover={{ scope: 'pet' }}>
-                {r === 0 ? (
-                  // A heart pops up while the pointer rests on the pet.
-                  <Box position="absolute" top={0} right={0} display="none" hover={{ scope: 'pet', display: 'flex' }}>
-                    <Text color={paint('error')}>♥</Text>
-                  </Box>
-                ) : null}
-                {isPetAway ? (
-                  <Text>{` ${(petRows[r] ?? []).map(p => p.text).join('')}`}</Text>
-                ) : (
-                  // A click anywhere on the pet pets it, where the surface can tell.
-                  <Box flexDirection="row">
-                    <Text> </Text>
-                    {Client === undefined ? (
-                      <Text>
-                        {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
-                      </Text>
-                    ) : (
-                      <Client
-                        key={`pet-touch-${r}`}
-                        module="./pet-touch.tsx"
-                        width={PET_WIDTH}
-                        props={{ rows: [(petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) }))] }}
-                      />
-                    )}
-                  </Box>
-                )}
+            {r === captionRow ? (
+              <Box flexShrink={0}>
+                <Text> {caption}</Text>
               </Box>
-            )}
+            ) : null}
             <Box flexShrink={0}>
               <Text color={paint(edge(W + r))}>{' │'}</Text>
             </Box>
@@ -2148,6 +2231,9 @@ export const register: Register = (on, options) => {
       )
       const isPinned = here !== null && all.some(p => p.id === here)
       const otherCount = all.filter(p => p.cwd !== cwd).length
+      const live = await liveSessions($, now)
+      const open = [...live.list].sort((a, b) => Number(b.isBusy) - Number(a.isBusy) || b.startedAt - a.startedAt)
+      const isOpen = (id: string) => id !== here && live.list.some(s => s.id === id)
       body = (
         <Box flexDirection="column" gap={1}>
           <Box flexDirection="row" columnGap={1} flexWrap="wrap">
@@ -2172,6 +2258,32 @@ export const register: Register = (on, options) => {
               onPress={() => update($, pinScope, s => (s === 'project' ? 'all' : 'project'))}
             />
           </Box>
+          {live.isKnown ? (
+            <Box flexDirection="column">
+              {heading('Open on this computer', `${open.length} ${open.length === 1 ? 'session' : 'sessions'}`)}
+              {open.slice(0, 12).map(s => {
+                const pin = all.find(p => p.id === s.id)
+                const isHere = s.id === here
+                return (
+                  <Box key={`live-${s.id}`} flexDirection="row" justifyContent="space-between" columnGap={1}>
+                    <Box flexShrink={1}>
+                      <Text wrap="truncate-end">
+                        <Text color={paint(s.isBusy ? 'warning' : 'success')}>{s.isBusy ? '● ' : '○ '}</Text>
+                        <Text bold>{pin?.name ?? s.name}</Text>
+                        <Text color={paint('inactive')}>{` · ${baseName(s.cwd)} · started ${ago(now - s.startedAt)}`}</Text>
+                      </Text>
+                    </Box>
+                    <Box flexShrink={0}>
+                      <Text color={paint(isHere ? 'claude' : s.isBusy ? 'warning' : 'subtle')}>
+                        {isHere ? 'this session' : s.isBusy ? 'Working' : 'Idle'}
+                      </Text>
+                    </Box>
+                  </Box>
+                )
+              })}
+              {open.length > 12 ? <Text color={paint('inactive')}>{`… and ${open.length - 12} more`}</Text> : null}
+            </Box>
+          ) : null}
           {heading(
             scope === 'project' ? `Pinned · ${baseName(cwd)}` : 'Pinned · all projects',
             `${list.length} ${list.length === 1 ? 'session' : 'sessions'}`,
@@ -2219,7 +2331,9 @@ export const register: Register = (on, options) => {
                       </Text>
                     )}
                     <Box flexDirection="row" columnGap={1} marginTop={1}>
-                      {isHere ? null : (
+                      {isHere ? null : isOpen(p.id) ? (
+                        <Text color={paint('warning')}>● Open in another window</Text>
+                      ) : (
                         <Button
                           key={`open-${p.id}`}
                           label="Open"
