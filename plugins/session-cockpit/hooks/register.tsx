@@ -26,6 +26,9 @@ import {
   humanPrompt,
   textOf,
   painter,
+  themeStyle,
+  FRAMES,
+  ambient,
   THEMES,
   shimmer,
   spin,
@@ -1137,7 +1140,11 @@ export const register: Register = (on, options) => {
     const { Box, Text } = els
     // Only the surfaces that run a Client can tell a click on the pet.
     const Client = 'Client' in els ? els.Client : undefined
-    const paint = painter(await read($, theme))
+    const themeId = await read($, theme)
+    const paint = painter(themeId)
+    // The theme's own frame, title mark, gauge and what drifts above the band.
+    const look = themeStyle(themeId)
+    const fr = FRAMES[look.frame]
 
     const budgetColor =
       limit > 0 && usd !== undefined
@@ -1350,7 +1357,7 @@ export const register: Register = (on, options) => {
 
     const gaugeRow = () => {
       if (pctShown === undefined) return null
-      const g = smoothBar(pctShown, body)
+      const g = smoothBar(pctShown, body, look.gauge)
       const filled = g.runs.reduce((n, r) => n + Array.from(r.text).length, 0)
       const at = working2 && filled > 0 ? f % (filled + 6) : -1
       const lit = isFlash && blink(250)
@@ -1453,7 +1460,7 @@ export const register: Register = (on, options) => {
     }
 
     const titleCells: Cell[] = [
-      { ch: '◆ ', color: 'claude', bold: true },
+      { ch: `${look.mark} `, color: 'claude', bold: true },
       ...shimmer('COCKPIT', working2 || isBoom ? f : null).map(r => ({
         ch: r.text,
         color: r.glow === 2 ? 'text' : r.glow === 1 ? 'warning' : 'claude',
@@ -1478,7 +1485,7 @@ export const register: Register = (on, options) => {
       ) : (
         <Text color={paint('success')}>● ready</Text>
       )
-    const head: Cell[] = [...Array.from('╭─ ').map((ch, col) => ({ ch, color: edge(col) })), ...titleCells]
+    const head: Cell[] = [...Array.from(`${fr.tl}${fr.h} `).map((ch, col) => ({ ch, color: edge(col) })), ...titleCells]
     // The pet's feet stand on the border: where they leave a gap, the line runs on.
     // Counted in columns: the title's shimmer packs several letters into one cell.
     const headW = head.reduce((n, c) => n + Array.from(c.ch).length, 0)
@@ -1486,13 +1493,13 @@ export const register: Register = (on, options) => {
     const feet: Cell[] =
       petRows === null
         ? []
-        : [{ ch: '─', color: edge(headW + 1) }].concat(
+        : [{ ch: fr.h, color: edge(headW + 1) }].concat(
             (petRows[2] ?? []).flatMap(p => Array.from(p.text).map(ch => ({ ch, color: p.color }))).map((c, k) =>
-              c.ch === ' ' ? { ch: '─', color: edge(yardAt + k) } : c,
+              c.ch === ' ' ? { ch: fr.h, color: edge(yardAt + k) } : c,
             ),
           )
     const dashCells = (from: number, count: number, at: (col: number) => number) =>
-      Array.from({ length: Math.max(0, count) }, (_, k) => ({ ch: '─', color: edge(at(from + k)) }))
+      Array.from({ length: Math.max(0, count) }, (_, k) => ({ ch: fr.h, color: edge(at(from + k)) }))
     // The dashes stretch or shrink to the room the engine gives the line, so
     // a glyph a terminal draws wide never pushes the corner off the end. They
     // wrap into a box one row high and the rest is clipped: a truncating Text
@@ -1511,8 +1518,8 @@ export const register: Register = (on, options) => {
           <Text>
             {' '}
             {topStatus}
-            <Text color={paint(edge(W - 2))}>{' ─'}</Text>
-            <Text color={paint(edge(W - 1))}>╮</Text>
+            <Text color={paint(edge(W - 2))}>{` ${fr.h}`}</Text>
+            <Text color={paint(edge(W - 1))}>{fr.tr}</Text>
           </Text>
         </Box>
       </Box>
@@ -1520,7 +1527,7 @@ export const register: Register = (on, options) => {
     const bottom = (
       <Box flexDirection="row">
         <Box flexShrink={0}>
-          <Text color={paint(edge(2 * W + R - 1))}>╰</Text>
+          <Text color={paint(edge(2 * W + R - 1))}>{fr.bl}</Text>
         </Box>
         <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
           <Text>{draw(dashCells(1, W, col => W + R + (W - 1 - col)))}</Text>
@@ -1528,19 +1535,28 @@ export const register: Register = (on, options) => {
         <Box flexShrink={0}>
           <Text>
             {caption !== null && !captionInRow ? <Text> {caption} </Text> : null}
-            <Text color={paint(edge(W + R + 1))}>{caption !== null && !captionInRow ? '─' : ''}</Text>
-            <Text color={paint(edge(W + R))}>╯</Text>
+            <Text color={paint(edge(W + R + 1))}>{caption !== null && !captionInRow ? fr.h : ''}</Text>
+            <Text color={paint(edge(W + R))}>{fr.br}</Text>
           </Text>
         </Box>
       </Box>
     )
 
+    // What drifts above the band in this theme: snow, petals, rain, stars.
+    const air =
+      look.ambient === null
+        ? null
+        : ambient(look.ambient, W, now).map(row => row.map(c => (c.color === '' ? { ...c, color: 'subtle' } : c)))
     // The pet's body above the border, its feet drawn into it. A click
     // anywhere on it pets it, where the surface can tell.
     const perch =
       petRows === null ? null : (
         <Box flexDirection="row" hover={{ scope: 'pet' }}>
-          <Text>{' '.repeat(yardAt)}</Text>
+          <Box flexDirection="column" flexShrink={0} width={yardAt}>
+            {[0, 1].map(r => (
+              <Text key={`air-left-${r}`}>{air === null ? ' '.repeat(yardAt) : draw(air[r]!.slice(0, yardAt))}</Text>
+            ))}
+          </Box>
           <Box flexShrink={0} width={yardW}>
             {/* A heart pops up while the pointer rests on the pet. */}
             <Box position="absolute" top={0} right={0} display="none" hover={{ scope: 'pet', display: 'flex' }}>
@@ -1567,6 +1583,15 @@ export const register: Register = (on, options) => {
               />
             )}
           </Box>
+          {air === null ? null : (
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+              {[0, 1].map(r => (
+                <Text key={`air-right-${r}`} wrap="truncate">
+                  {draw(air[r]!.slice(yardAt + yardW))}
+                </Text>
+              ))}
+            </Box>
+          )}
         </Box>
       )
     const frameBox = (
@@ -1576,7 +1601,7 @@ export const register: Register = (on, options) => {
         {rows.map((row, r) => (
           <Box key={`row-${r}`} flexDirection="row">
             <Box flexShrink={0}>
-              <Text color={paint(edge(2 * W + R + (R - 1 - r)))}>{'│ '}</Text>
+              <Text color={paint(edge(2 * W + R + (R - 1 - r)))}>{`${fr.v} `}</Text>
             </Box>
             <Box flexGrow={1} flexShrink={1} overflow="hidden">
               {row}
@@ -1587,7 +1612,7 @@ export const register: Register = (on, options) => {
               </Box>
             ) : null}
             <Box flexShrink={0}>
-              <Text color={paint(edge(W + r))}>{' │'}</Text>
+              <Text color={paint(edge(W + r))}>{` ${fr.v}`}</Text>
             </Box>
           </Box>
         ))}
@@ -1804,7 +1829,11 @@ export const register: Register = (on, options) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button, Code } = els
     const Client = 'Client' in els ? els.Client : undefined
-    const paint = painter(await read($, theme))
+    const paneTheme = await read($, theme)
+    const paint = painter(paneTheme)
+    // Boxes take the theme's frame; the title its mark.
+    const paneStyle = themeStyle(paneTheme)
+    const paneBox = FRAMES[paneStyle.frame].box
     const current = await read($, tab)
     const width = Math.max(24, e.props.bodyColumns)
     const room = Math.max(4, e.props.scroll.bodyRows - 4)
@@ -1869,7 +1898,7 @@ export const register: Register = (on, options) => {
       <Box
         key={key}
         flexDirection="column"
-        borderStyle="round"
+        borderStyle={paneBox}
         borderColor={paint(color)}
         paddingX={1}
         width={cardWidth}
@@ -1925,7 +1954,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold>
-            <Text color={paint('claude')}>◆ </Text>
+            <Text color={paint('claude')}>{`${paneStyle.mark} `}</Text>
             {shimmer('SESSION COCKPIT', busy ? f : null).map(r => (
               <Text color={paint(r.glow === 2 ? 'text' : r.glow === 1 ? 'warning' : 'claude')}>{r.text}</Text>
             ))}
@@ -2317,7 +2346,7 @@ export const register: Register = (on, options) => {
                   <Box
                     key={`pin-${p.id}`}
                     flexDirection="column"
-                    borderStyle="round"
+                    borderStyle={paneBox}
                     borderColor={paint(isHere ? 'claude' : left <= 2 ? 'error' : left <= WARN_DAYS ? 'warning' : 'subtle')}
                     paddingX={1}
                   >
@@ -2395,7 +2424,7 @@ export const register: Register = (on, options) => {
                   <Box
                     key={b.id}
                     flexDirection="column"
-                    borderStyle="round"
+                    borderStyle={paneBox}
                     borderColor={paint(look[b.outcome].color)}
                     paddingX={1}
                   >
@@ -3010,16 +3039,25 @@ export const register: Register = (on, options) => {
       const lifeLook = await read($, petLife)
       const stLook = petStats(lifeLook, nowLook)
       const inner = Math.max(16, Math.min(40, width - 4))
-      const gauge = smoothBar(42, inner)
+      const lookStyle = themeStyle(look.id)
+      const gauge = smoothBar(42, inner, lookStyle.gauge)
+      const air = lookStyle.ambient === null ? null : ambient(lookStyle.ambient, inner, nowLook)
       const sprite = pet('idle', nowLook, false, PET_WIDTH, stLook.stage, lifeLook.skin, 'fine', lifeLook)
       const preview = (
-        <Box flexDirection="column" borderStyle="round" borderColor={tint('subtle')} paddingX={1}>
+        <Box flexDirection="column" borderStyle={FRAMES[themeStyle(look.id).frame].box} borderColor={tint('subtle')} paddingX={1}>
           <Box flexDirection="row" justifyContent="space-between">
             <Text color={tint('claude')} bold>
-              ◆ COCKPIT
+              {`${lookStyle.mark} COCKPIT`}
             </Text>
             <Text color={tint('success')}>● ready</Text>
           </Box>
+          {air === null
+            ? null
+            : air.map((cells, r) => (
+                <Text key={`theme-air-${r}`}>
+                  {cells.map(c => (c.color === '' ? c.ch : <Text color={tint(c.color)}>{c.ch}</Text>))}
+                </Text>
+              ))}
           {sprite.map((row, r) => (
             <Text key={`theme-pet-${r}`}>
               {row.map(x => (x.color === '' ? x.text : <Text color={tint(x.color)}>{x.text}</Text>))}
@@ -3056,8 +3094,9 @@ export const register: Register = (on, options) => {
             {swatch.map(k => (
               <Text color={shade(k)}>█</Text>
             ))}
+            <Text color={shade('claude')}>{`  ${themeStyle(t.id).mark} `}</Text>
             <Text bold={isOn} color={isOn ? shade('claude') : undefined}>
-              {`  ${t.name.padEnd(12)}`}
+              {t.name.padEnd(12)}
             </Text>
             {isNarrow ? null : <Text color={paint('inactive')}>{t.note}</Text>}
           </Button>

@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -558,7 +558,12 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     expect(await ui.find({ type: 'Text', text: /Neon/ })).toBeDefined()
     await ui.press({ key: 'theme-neon' })
     const band = await $.ui.mount({ ...BAND, surface } as never)
-    expect(JSON.stringify(await band.drawn())).toContain('#ff2bd6')
+    const drawn = JSON.stringify(await band.drawn())
+    expect(drawn).toContain('#ff2bd6')
+    // Neon draws its own frame and title mark, with rain above, not just its colors.
+    expect(drawn).toContain('┏━')
+    expect(drawn).toContain('⚡ COCKPIT')
+    expect(drawn).toMatch(/[╎¦]/)
     await band.unmount()
     // The tab previews the chosen theme, sorts themes by terminal background,
     // and can pick one at random or go back to Claude's own.
@@ -574,6 +579,13 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     await ui.unmount()
   }
   expect(THEMES.length).toBe(15)
+  // Rain falls through the two rows above the band, a step at a time.
+  const rain = (t: number) => ambient('rain', 80, t).map(r => r.map(c => c.ch).join(''))
+  expect(rain(0).join('')).toMatch(/[╎¦│]/)
+  expect(rain(0)).not.toEqual(rain(200))
+  const pips = smoothBar(50, 10, 'pips')
+  expect(pips.runs.map(r => r.text).join('') + pips.rest).toBe('▰▰▰▰▰▱▱▱▱▱')
+  expect(themeStyle('claude')).toEqual({ frame: 'round', mark: '◆', gauge: 'smooth', ambient: null })
 })
 
 test('motion helpers ease, type and sweep', async () => {

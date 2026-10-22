@@ -439,6 +439,92 @@ export type Theme = {
   colors: Record<string, string>
   /** Made for a light terminal background; the rest are made for dark ones. */
   isLight?: boolean
+  /** How it draws beyond color: frame, title mark, gauge and what drifts above the band. */
+  style?: Partial<ThemeStyle>
+}
+
+export type FrameKind = 'round' | 'double' | 'heavy' | 'light' | 'ascii' | 'dashed'
+export type GaugeKind = 'smooth' | 'pips' | 'dots' | 'squares' | 'hash' | 'shade'
+export type AmbientKind = 'snow' | 'petals' | 'rain' | 'stars' | 'embers' | 'bubbles' | 'leaves' | 'glitch' | 'fireflies'
+
+export type ThemeStyle = { frame: FrameKind; mark: string; gauge: GaugeKind; ambient: AmbientKind | null }
+
+/** The glyphs of each frame, and the matching borderStyle for boxes drawn by the engine. */
+export const FRAMES: Record<FrameKind, { tl: string; tr: string; bl: string; br: string; h: string; v: string; box: string }> = {
+  round: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│', box: 'round' },
+  double: { tl: '╔', tr: '╗', bl: '╚', br: '╝', h: '═', v: '║', box: 'double' },
+  heavy: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━', v: '┃', box: 'bold' },
+  light: { tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─', v: '│', box: 'single' },
+  ascii: { tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|', box: 'classic' },
+  dashed: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '┄', v: '┆', box: 'round' },
+}
+
+const PLAIN_STYLE: ThemeStyle = { frame: 'round', mark: '◆', gauge: 'smooth', ambient: null }
+
+/** The style a theme draws with, the plain one filling in what it leaves out. */
+export function themeStyle(themeId: string | null | undefined): ThemeStyle {
+  return { ...PLAIN_STYLE, ...THEMES.find(t => t.id === themeId)?.style }
+}
+
+/** The glyphs a gauge fills and leaves empty with; smooth fills in eighths. */
+const GAUGES: Record<Exclude<GaugeKind, 'smooth'>, { full: string; empty: string }> = {
+  pips: { full: '▰', empty: '▱' },
+  dots: { full: '●', empty: '·' },
+  squares: { full: '■', empty: '□' },
+  hash: { full: '#', empty: '.' },
+  shade: { full: '▓', empty: '░' },
+}
+
+// What drifts above the band: glyphs, colors, how fast a step is, and how it moves.
+const AMBIENTS: Record<AmbientKind, { glyphs: string[]; colors: string[]; ms: number; move: 'fall' | 'rise' | 'twinkle' | 'flicker' }> = {
+  snow: { glyphs: ['·', '*', '⋆'], colors: ['text', 'suggestion'], ms: 700, move: 'fall' },
+  petals: { glyphs: ['✿', '❀', '·'], colors: ['claude', 'merged'], ms: 600, move: 'fall' },
+  rain: { glyphs: ['╎', '¦', '│'], colors: ['suggestion', 'permission'], ms: 200, move: 'fall' },
+  leaves: { glyphs: [',', '‘', '`'], colors: ['success', 'warning'], ms: 650, move: 'fall' },
+  embers: { glyphs: ['·', '˙', '*'], colors: ['claude', 'error', 'warning'], ms: 450, move: 'rise' },
+  bubbles: { glyphs: ['°', 'o', '∘'], colors: ['suggestion', 'permission'], ms: 600, move: 'rise' },
+  stars: { glyphs: ['·', '✧', '✦', '⋆'], colors: ['warning', 'text', 'permission'], ms: 500, move: 'twinkle' },
+  fireflies: { glyphs: ['·', '•'], colors: ['warning', 'success'], ms: 400, move: 'twinkle' },
+  glitch: { glyphs: ['▚', '▞', '░', '▒'], colors: ['suggestion', 'error', 'permission'], ms: 150, move: 'flicker' },
+}
+
+const mix = (a: number, b: number) => {
+  let h = Math.imul(a + 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35)
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b)
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
+  return (h ^ (h >>> 16)) >>> 0
+}
+
+/**
+ * The two rows above the band: what drifts there at `now`, cell by cell, a
+ * space where nothing is. About one column in four carries something.
+ */
+export function ambient(kind: AmbientKind, width: number, now: number): { ch: string; color: string }[][] {
+  const a = AMBIENTS[kind]
+  const step = Math.floor(now / a.ms)
+  const rows = [0, 1].map(() => Array.from({ length: Math.max(0, width) }, () => ({ ch: ' ', color: '' })))
+  for (let c = 0; c < width; c++) {
+    const h = mix(c, 7)
+    const look = (n: number) => ({ ch: a.glyphs[n % a.glyphs.length]!, color: a.colors[(n >>> 3) % a.colors.length]! })
+    if (a.move === 'flicker') {
+      const k = mix(c, step)
+      if (k % 23 === 0) rows[k % 2]![c] = look(k >>> 4)
+      continue
+    }
+    if (h % 4 !== 0) continue
+    if (a.move === 'twinkle') {
+      // Fixed in place, lit for part of its own cycle.
+      if ((step + (h >>> 4)) % 5 < 2) rows[(h >>> 2) % 2]![c] = look((step + h) >>> 1)
+      continue
+    }
+    // Falls or rises through the two rows, then waits off screen a while.
+    const y = (step + (h >>> 4)) % 5
+    if (y > 1) continue
+    // Petals and leaves drift sideways as they fall.
+    const col = kind === 'petals' || kind === 'leaves' ? Math.min(width - 1, c + y) : c
+    rows[a.move === 'rise' ? 1 - y : y]![col] = look(h >>> 5)
+  }
+  return rows
 }
 
 // Each theme maps the Claude Code theme keys the mod paints with to colors of
@@ -449,6 +535,7 @@ export const THEMES: Theme[] = [
     id: 'ocean',
     name: 'Ocean',
     note: 'Cool blues and teals',
+    style: { mark: '◈', gauge: 'pips', ambient: 'bubbles' },
     colors: {
       claude: '#4fc3f7', success: '#4dd0e1', warning: '#ffd54f', error: '#ff8a80',
       suggestion: '#80deea', permission: '#64b5f6', merged: '#b39ddb',
@@ -459,6 +546,7 @@ export const THEMES: Theme[] = [
     id: 'sunset',
     name: 'Sunset',
     note: 'Warm oranges and pinks',
+    style: { mark: '☀', frame: 'round', gauge: 'shade', ambient: 'embers' },
     colors: {
       claude: '#ff7e5f', success: '#ffb36b', warning: '#ffd166', error: '#ff4e6a',
       suggestion: '#f6a5c0', permission: '#c3aed6', merged: '#e0a3ff',
@@ -469,6 +557,7 @@ export const THEMES: Theme[] = [
     id: 'neon',
     name: 'Neon',
     note: 'High-contrast synthwave',
+    style: { frame: 'heavy', mark: '⚡', gauge: 'pips', ambient: 'rain' },
     colors: {
       claude: '#ff2bd6', success: '#39ff14', warning: '#fff01f', error: '#ff073a',
       suggestion: '#00f0ff', permission: '#7df9ff', merged: '#bc13fe',
@@ -479,6 +568,7 @@ export const THEMES: Theme[] = [
     id: 'forest',
     name: 'Forest',
     note: 'Calm greens and earth tones',
+    style: { mark: '♣', gauge: 'dots', ambient: 'leaves' },
     colors: {
       claude: '#8bc34a', success: '#66bb6a', warning: '#e6c229', error: '#e57373',
       suggestion: '#a5d6a7', permission: '#80cbc4', merged: '#ce93d8',
@@ -489,6 +579,7 @@ export const THEMES: Theme[] = [
     id: 'mono',
     name: 'Mono',
     note: 'Greys only, for recording or focus',
+    style: { frame: 'ascii', mark: '#', gauge: 'hash' },
     colors: {
       claude: '#e0e0e0', success: '#bdbdbd', warning: '#f5f5f5', error: '#ffffff',
       suggestion: '#9e9e9e', permission: '#9e9e9e', merged: '#cfcfcf',
@@ -499,6 +590,7 @@ export const THEMES: Theme[] = [
     id: 'cyberpunk',
     name: 'Cyberpunk',
     note: 'Acid yellow, cyan and hot red on black',
+    style: { frame: 'double', mark: '▲', gauge: 'squares', ambient: 'glitch' },
     colors: {
       claude: '#fcee0a', success: '#00ff9f', warning: '#02d7f2', error: '#ff003c',
       suggestion: '#02d7f2', permission: '#b026ff', merged: '#b026ff',
@@ -509,48 +601,56 @@ export const THEMES: Theme[] = [
     id: 'dracula',
     name: 'Dracula',
     note: 'Purple night with neon pastels',
+    style: { mark: '☾', gauge: 'pips', ambient: 'stars' },
     colors: { claude: '#bd93f9', success: '#50fa7b', warning: '#f1fa8c', error: '#ff5555', suggestion: '#8be9fd', permission: '#ff79c6', merged: '#bd93f9', subtle: '#6272a4', inactive: '#44475a', text: '#f8f8f2' },
   },
   {
     id: 'nord',
     name: 'Nord',
     note: 'Frosty arctic blues',
+    style: { frame: 'light', mark: '❄', gauge: 'shade', ambient: 'snow' },
     colors: { claude: '#88c0d0', success: '#a3be8c', warning: '#ebcb8b', error: '#bf616a', suggestion: '#81a1c1', permission: '#b48ead', merged: '#b48ead', subtle: '#7b88a1', inactive: '#4c566a', text: '#eceff4' },
   },
   {
     id: 'gruvbox',
     name: 'Gruvbox',
     note: 'Warm retro, like old paper',
+    style: { frame: 'heavy', mark: '▣', gauge: 'squares', ambient: 'embers' },
     colors: { claude: '#fe8019', success: '#b8bb26', warning: '#fabd2f', error: '#fb4934', suggestion: '#83a598', permission: '#d3869b', merged: '#d3869b', subtle: '#a89984', inactive: '#665c54', text: '#ebdbb2' },
   },
   {
     id: 'catppuccin',
     name: 'Catppuccin',
     note: 'Soft pastels on mocha',
+    style: { mark: '♡', gauge: 'dots', ambient: 'stars' },
     colors: { claude: '#cba6f7', success: '#a6e3a1', warning: '#f9e2af', error: '#f38ba8', suggestion: '#89dceb', permission: '#f5c2e7', merged: '#b4befe', subtle: '#9399b2', inactive: '#585b70', text: '#cdd6f4' },
   },
   {
     id: 'tokyo-night',
     name: 'Tokyo Night',
     note: 'City lights after dark',
+    style: { frame: 'double', mark: '◉', gauge: 'pips', ambient: 'rain' },
     colors: { claude: '#7aa2f7', success: '#9ece6a', warning: '#e0af68', error: '#f7768e', suggestion: '#7dcfff', permission: '#bb9af7', merged: '#bb9af7', subtle: '#737aa2', inactive: '#414868', text: '#c0caf5' },
   },
   {
     id: 'rose-pine',
     name: 'Rosé Pine',
     note: 'Muted rose and pine',
+    style: { frame: 'dashed', mark: '❦', gauge: 'dots', ambient: 'fireflies' },
     colors: { claude: '#ebbcba', success: '#9ccfd8', warning: '#f6c177', error: '#eb6f92', suggestion: '#c4a7e7', permission: '#c4a7e7', merged: '#ebbcba', subtle: '#908caa', inactive: '#524f67', text: '#e0def4' },
   },
   {
     id: 'sakura',
     name: 'Sakura',
     note: 'Cherry blossom pinks',
+    style: { frame: 'dashed', mark: '✿', gauge: 'dots', ambient: 'petals' },
     colors: { claude: '#ff8fab', success: '#b5e48c', warning: '#ffd6a5', error: '#ff4d6d', suggestion: '#a2d2ff', permission: '#cdb4db', merged: '#ffc8dd', subtle: '#a5948f', inactive: '#6b5b5e' },
   },
   {
     id: 'paper',
     name: 'Paper',
     note: 'Ink on a light background',
+    style: { frame: 'light', mark: '✎', gauge: 'shade' },
     colors: { claude: '#c15f3c', success: '#2e7d32', warning: '#b26a00', error: '#c62828', suggestion: '#1565c0', permission: '#6a1b9a', merged: '#6a1b9a', subtle: '#6d6d6d', inactive: '#9e9e9e', text: '#1a1a1a', inverseText: '#ffffff' },
     isLight: true,
   },
@@ -563,9 +663,12 @@ export const THEMES: Theme[] = [
 export function smoothBar(
   percent: number,
   width: number,
+  kind: GaugeKind = 'smooth',
 ): { runs: { text: string; color: string }[]; rest: string } {
   const w = Math.max(4, width)
-  const units = Math.round((Math.min(100, Math.max(0, percent)) / 100) * w * 8)
+  const glyphs = kind === 'smooth' ? null : GAUGES[kind]
+  // Other gauges fill whole cells only.
+  const units = glyphs === null ? Math.round((Math.min(100, Math.max(0, percent)) / 100) * w * 8) : Math.round((Math.min(100, Math.max(0, percent)) / 100) * w) * 8
   const full = Math.floor(units / 8)
   const part = EIGHTHS[units % 8] ?? ''
   const runs: { text: string; color: string }[] = []
@@ -575,9 +678,9 @@ export function smoothBar(
     if (last !== undefined && last.color === color) last.text += ch
     else runs.push({ text: ch, color })
   }
-  for (let i = 0; i < full; i++) push('█', i)
+  for (let i = 0; i < full; i++) push(glyphs?.full ?? '█', i)
   if (part !== '') push(part, full)
-  return { runs, rest: '░'.repeat(Math.max(0, w - full - (part === '' ? 0 : 1))) }
+  return { runs, rest: (glyphs?.empty ?? '░').repeat(Math.max(0, w - full - (part === '' ? 0 : 1))) }
 }
 
 /**
