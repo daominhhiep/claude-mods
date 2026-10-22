@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, pet, petMood, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, dayKey, feedAndAward, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -19,10 +19,11 @@ const PANE = {
 /** Turns the timed effects off through the Config tab, so a band shows its rows. */
 async function quiet($: Parameters<Parameters<typeof test>[1]>[0]) {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-settings' })
   await ui.press({ key: 'tab-config' })
   await ui.press({ key: 'fx-fireworks' })
   await ui.press({ key: 'fx-flash' })
-  await ui.press({ key: 'tab-weather' })
+  await ui.press({ key: 'group-weather' })
   await ui.unmount()
 }
 
@@ -110,11 +111,12 @@ test('the activity tab lists tool calls, on every surface', async ($, on) => {
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'group-work' })
     await ui.press({ key: 'tab-log' })
     expect(await ui.find({ type: 'Text', text: /go test/ })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: /^Bash/ }))?.text).toContain('Bash')
     expect((await ui.find({ type: 'Text', text: /^\d+ calls?$/ }))?.text).toBe('1 call')
-    await ui.press({ key: 'tab-weather' })
+    await ui.press({ key: 'group-weather' })
     expect(await ui.find({ type: 'Text', text: /No reading yet/ })).toBeDefined()
     await ui.unmount()
   }
@@ -152,6 +154,7 @@ test('the changes tab replays an edit as a diff, and weather draws a reading', a
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'group-work' })
     await ui.press({ key: 'tab-replay' })
     expect((await ui.find({ type: 'Text', text: /main\.go/ }))?.text).toBe('main.go')
     expect(await ui.find({ type: 'Code' })).toBeDefined()
@@ -373,6 +376,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
     await band.unmount()
 
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'group-work' })
     await ui.press({ key: 'tab-agents' })
     expect((await ui.find({ type: 'Text', text: /code-reviewer/ }))?.text).toContain('1 tool')
     expect((await ui.find({ type: 'Text', text: /↳/ }))?.text).toContain('src/loader.go')
@@ -499,7 +503,7 @@ test('pinning keeps a named session one press away', async ($, on) => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    await ui.press({ key: 'tab-sessions' })
+    await ui.press({ key: 'group-sessions' })
     expect((await ui.find({ type: 'Text', text: /finance export/ }))?.text).toBe('★ finance export')
     expect(await ui.find({ type: 'Text', text: /this session/ })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: /app ·/ }))?.text).toBe('app · just now · $3.20')
@@ -509,7 +513,7 @@ test('pinning keeps a named session one press away', async ($, on) => {
   const unpinned = (await $.command.run({ command: 'unpin' } as never)) as { text: string }
   expect(unpinned.text).toContain('Unpinned')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'tab-sessions' })
+  await ui.press({ key: 'group-sessions' })
   expect(await ui.find({ type: 'Text', text: /No pinned sessions/ })).toBeDefined()
   await ui.press({ key: 'pin-here' })
   expect(filled).toEqual(['/pin '])
@@ -531,6 +535,7 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'group-settings' })
     await ui.press({ key: 'tab-theme' })
     expect(await ui.find({ type: 'Text', text: /Neon/ })).toBeDefined()
     await ui.press({ key: 'theme-neon' })
@@ -807,6 +812,7 @@ test('effects burst, flash, type out and fold away, and the Config tab turns the
 
   // The Config tab turns an effect off, and the choice is saved.
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-settings' })
   await ui.press({ key: 'tab-config' })
   expect(await ui.find({ type: 'Text', text: /Fireworks when a turn ends/ })).toBeDefined()
   await ui.press({ key: 'fx-fireworks' })
@@ -846,8 +852,19 @@ test('the pet moves with the session: works, cheers, frets and naps', async () =
 })
 
 test('the pet lives in the band and the Config tab sends it away', async ($, on) => {
-  mock.store(on)
   const state = { now: 1_700_000_000_600 }
+  // A pet looked after on eight days is grown up.
+  mock.store(on, {
+    petLife: {
+      name: 'Mochi',
+      bornAt: state.now - 9 * 86_400_000,
+      days: Object.fromEntries(Array.from({ length: 8 }, (_, i) => [dayKey(state.now - (i + 1) * 86_400_000), 3])),
+      lastFedAt: state.now - 3_600_000,
+      turns: 24,
+      skin: 'classic',
+      achievements: {},
+    },
+  })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -925,6 +942,7 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   expect(await bandText()).toMatch(/[✦✧] ▐/)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-settings' })
   await ui.press({ key: 'tab-config' })
   expect(await ui.find({ type: 'Text', text: /Claude pet/ })).toBeDefined()
   await ui.press({ key: 'fx-pet' })
@@ -932,4 +950,114 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   const text = await bandText()
   expect(text).not.toContain('▐▛')
   expect(text).not.toContain('▐█')
+})
+
+test('the pet grows with the days you use Claude, earns achievements and skins', async () => {
+  const day = 86_400_000
+  // Noon on a Wednesday, local time, so no hour or weekday achievement fires by accident.
+  const start = new Date(2026, 9, 21, 12).getTime()
+  let life = newPetLife(start)
+  expect(petStats(life, start).stage).toBe('egg')
+  expect(petStats(life, start).hunger).toBe('full')
+
+  // Three turns hatch the egg on day one.
+  const earned: string[] = []
+  for (let i = 0; i < 3; i++) {
+    const r = feedAndAward(life, start + i * 60_000)
+    life = r.life
+    earned.push(...r.earned.map(a => a.id))
+  }
+  expect(petStats(life, start).stage).toBe('baby')
+  expect(earned).toEqual(['hatched'])
+
+  // A turn a day for six more days: a kid at three, grown up at seven, with streaks.
+  for (let d = 1; d < 7; d++) {
+    const r = feedAndAward(life, start + d * day)
+    life = r.life
+    earned.push(...r.earned.map(a => a.id))
+  }
+  const now = start + 6 * day
+  const st = petStats(life, now)
+  expect(st.stage).toBe('adult')
+  expect(st.activeDays).toBe(7)
+  expect(st.streak).toBe(7)
+  expect(st.weekDays).toBe(7)
+  expect(st.hearts).toBe(5)
+  expect(st.level).toBeGreaterThan(1)
+  expect(earned).toContain('streak-3')
+  expect(earned).toContain('streak-7')
+  expect(earned).toContain('grown')
+  expect(hasSkin(life, 'mint')).toBe(true)
+  expect(hasSkin(life, 'gold')).toBe(false)
+  // A weekend turn falls inside any seven days in a row.
+  expect(earned).toContain('weekend')
+
+  // Left alone it gets hungry, and the streak runs out.
+  expect(petStats(life, now + 30 * 3_600_000).hunger).toBe('hungry')
+  expect(petStats(life, now + 4 * day).hunger).toBe('starving')
+  expect(petStats(life, now + 4 * day).streak).toBe(0)
+  // Coming back after three days is an achievement of its own.
+  expect(feedAndAward(life, now + 4 * day).earned.map(a => a.id)).toContain('comeback')
+
+  // A broken save starts a new egg; unknown skins and achievements are dropped.
+  expect(petLifeFrom('nonsense', start).turns).toBe(0)
+  const read = petLifeFrom({ ...life, skin: 'rainbow', achievements: { hatched: 1, nope: 2 } }, start)
+  expect(read.skin).toBe('classic')
+  expect(Object.keys(read.achievements)).toEqual(['hatched'])
+  // Each stage draws its own body; an egg has no eyes.
+  const rows = (stage: Parameters<typeof pet>[4]) => pet('idle', 600, false, PET_WIDTH, stage).map(r => r.map(x => x.text).join(''))
+  expect(rows('egg').join('')).toContain('▗▄▖')
+  expect(rows('baby')[0]!.trim()).toBe('')
+  expect(rows('kid')[1]).toContain(' █████ ')
+  expect(pet('idle', 600, false, PET_WIDTH, 'adult', 'mint')[1]!.some(x => x.color === 'success')).toBe(true)
+})
+
+test('the Pet tab shows the pet, its skins and achievements; /pet names it', async ($, on) => {
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  for (const id of ['t1', 't2', 't3']) {
+    await $.turn.start({ text: id, turnId: id })
+    await $.turn.complete({ turnId: id, answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+  }
+  expect(toasts.some(t => t.includes('Clawd hatched!') && t.includes('Achievement: Hatched'))).toBe(true)
+
+  const named = (await $.command.run({ command: 'pet', args: 'Mochi' } as never)) as { text: string }
+  expect(named.text).toBe('Your pet is now called Mochi.')
+  const shown = (await $.command.run({ command: 'pet', args: '' } as never)) as { text: string }
+  expect(shown.text).toMatch(/^Mochi is a baby at level/)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^MOCHI$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Baby · level/ })).toBeDefined()
+  // Hatched, and perhaps an hour-of-day one, as the clock falls in this time zone.
+  expect(await ui.find({ type: 'Text', text: /^[12] of 13$/ }), 'achievements').toBeDefined()
+  // A locked skin says how to earn it and is not worn.
+  await ui.press({ key: 'skin-gold' })
+  expect(toasts.at(-1)).toContain('Wise old friend')
+  // An owned one is worn at a press.
+  await ui.press({ key: 'skin-classic' })
+  expect(await ui.find({ type: 'Text', text: /^◉ $/ })).toBeDefined()
+  // Settings holds Theme and Effects; Work holds four tabs.
+  await ui.press({ key: 'group-settings' })
+  expect(await ui.find({ type: 'Text', text: /^Effects$/ })).toBeDefined()
+  await ui.press({ key: 'group-work' })
+  expect(await ui.find({ type: 'Text', text: /^Guard$/ })).toBeDefined()
+  await ui.unmount()
 })

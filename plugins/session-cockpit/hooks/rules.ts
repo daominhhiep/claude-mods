@@ -1,3 +1,5 @@
+import type { PetLife, PetLifeStage } from '../types'
+
 // Pure helpers: destructive-command detection, weather levels, line diffs.
 // No `$` here, so tests can call them directly.
 
@@ -640,7 +642,7 @@ export function headsUp(text: string): string | null {
 export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet'
 export type Effects = Record<EffectId, boolean>
 
-/** Each effect the Config tab turns on and off, in the order it lists them. */
+/** Each effect Settings · Effects turns on and off, in the order it lists them. */
 export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
   { id: 'fireworks', label: 'Fireworks when a turn ends', hint: 'The band bursts for two seconds with the time and cost.' },
   { id: 'flash', label: 'Flash at each context level', hint: 'At 25, 50, 75 and 90% the frame flashes and names the level.' },
@@ -738,7 +740,7 @@ export function burst(
 
 // ── The pet ──────────────────────────────────────────────────────────
 
-export type PetMood = 'idle' | 'work' | 'happy' | 'oops' | 'sleep'
+export type PetMood = 'idle' | 'work' | 'happy' | 'oops' | 'sleep' | 'sad'
 
 /** How many cells the pet's yard takes at the band's right edge. */
 export const PET_WIDTH = 16
@@ -747,9 +749,30 @@ export const PET_HAPPY_MS = 5_000
 export const PET_OOPS_MS = 3_000
 
 const PET_BODY = 9
-const PET_EYES = { open: ' ▐▛███▜▌ ', shut: ' ▐█████▌ ' }
-const PET_ARMS = { down: '▝▜█████▛▘', up: '▗▟█████▙▖' }
-const PET_FEET = { together: '  ▘▘ ▝▝  ', apart: ' ▘▘   ▝▝ ' }
+
+type PetPose = { shut: boolean; up: boolean; apart: boolean }
+
+/** Each stage's three rows in a pose, every row PET_BODY cells wide. */
+const PET_SPRITES: Record<PetStage, (p: PetPose) => [string, string, string]> = {
+  egg: p => [p.up ? '   ▗▞▖   ' : '   ▗▄▖   ', '  ▐███▌  ', '   ▝▀▘   '],
+  // A baby is two rows tall and hops a row up for joy.
+  baby: p => {
+    const eyes = p.shut ? '  ▐███▌  ' : '  ▐▛█▜▌  '
+    const feet = p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '
+    return p.up ? [eyes, feet, '         '] : ['         ', eyes, feet]
+  },
+  kid: p => [
+    p.shut ? ' ▐█████▌ ' : ' ▐▛███▜▌ ',
+    p.up ? ' ▗█████▖ ' : '  █████  ',
+    p.apart ? ' ▘▘   ▝▝ ' : '  ▘▘ ▝▝  ',
+  ],
+  adult: p => [
+    p.shut ? ' ▐█████▌ ' : ' ▐▛███▜▌ ',
+    p.up ? '▗▟█████▙▖' : '▝▜█████▛▘',
+    p.apart ? ' ▘▘   ▝▝ ' : '  ▘▘ ▝▝  ',
+  ],
+  elder: p => PET_SPRITES.adult(p),
+}
 
 /** What a pet should feel, the strongest reason first. */
 export function petMood(s: {
@@ -758,10 +781,12 @@ export function petMood(s: {
   isCold: boolean
   turnEndedAt: number | null
   failedAt: number | null
+  isHungry?: boolean
 }): PetMood {
   if (s.failedAt !== null && s.now - s.failedAt < PET_OOPS_MS) return 'oops'
   if (s.turnEndedAt !== null && s.now - s.turnEndedAt < PET_HAPPY_MS && !s.isWorking) return 'happy'
   if (s.isWorking) return 'work'
+  if (s.isHungry === true) return 'sad'
   return s.isCold ? 'sleep' : 'idle'
 }
 
@@ -775,6 +800,8 @@ export function pet(
   now: number,
   isSweating: boolean,
   width: number = PET_WIDTH,
+  stage: PetStage = 'adult',
+  skin: string = 'classic',
 ): { text: string; color: string }[][] {
   const w = Math.max(PET_WIDTH, Math.floor(width))
   const grid = Array.from({ length: 3 }, () => Array.from({ length: w }, () => ({ ch: ' ', color: '' })))
@@ -785,42 +812,46 @@ export function pet(
   const beat = (ms: number) => Math.floor(now / ms)
   const room = w - PET_BODY - 1
   let x = Math.floor(room / 2)
-  let eyes = beat(500) % 8 === 0 ? PET_EYES.shut : PET_EYES.open
-  let arms = PET_ARMS.down
-  let feet = PET_FEET.together
-  let body = 'claude'
+  const pose: PetPose = { shut: beat(500) % 8 === 0, up: false, apart: false }
+  let body = (PET_SKINS.find(k => k.id === skin) ?? PET_SKINS[0]!).color
 
   if (mood === 'work') {
     // Paces its yard, legs swinging: a step every quarter second in the
     // band's yard, ten a second across a wide one so it gets somewhere.
+    // An egg rolls the same way.
     const span = room * 2
     const step = beat(w > PET_WIDTH ? 100 : 250) % span
     x = step <= room ? step : span - step
-    feet = beat(250) % 2 === 0 ? PET_FEET.together : PET_FEET.apart
+    pose.apart = beat(250) % 2 === 1
   } else if (mood === 'happy') {
-    // Jumps for joy, arms up on every other beat, with sparkles.
-    const up = beat(300) % 2 === 0
-    arms = up ? PET_ARMS.up : PET_ARMS.down
-    feet = up ? PET_FEET.apart : PET_FEET.together
-    put(0, x + PET_BODY, up ? '✦' : '✧', 'warning')
-    put(0, x - 1, up ? '✧' : '✦', 'warning')
+    // Jumps for joy on every other beat, with sparkles.
+    pose.up = beat(300) % 2 === 0
+    pose.apart = pose.up
+    put(0, x + PET_BODY, pose.up ? '✦' : '✧', 'warning')
+    put(0, x - 1, pose.up ? '✧' : '✦', 'warning')
   } else if (mood === 'oops') {
     // Shakes on the spot, red, with an exclamation.
     x += beat(100) % 2 === 0 ? 0 : 1
-    eyes = PET_EYES.open
+    pose.shut = false
     body = 'error'
     put(0, x + PET_BODY, '!', 'error')
   } else if (mood === 'sleep') {
-    eyes = PET_EYES.shut
+    pose.shut = true
     body = 'subtle'
     // The z's rise, one row a second.
     const z = beat(1000) % 2
     put(1 - z, x + PET_BODY, z === 0 ? 'z' : 'Z', 'inactive')
+  } else if (mood === 'sad') {
+    // Hungry: grey, eyes down, and it asks for food now and then.
+    pose.shut = beat(700) % 3 !== 0
+    body = 'subtle'
+    if (beat(2000) % 2 === 0) put(0, x + PET_BODY, '?', 'warning')
   }
 
-  const rows = [eyes, arms, feet]
-  rows.forEach((line, row) => Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)))
-  if (isSweating && mood !== 'sleep') {
+  PET_SPRITES[stage](pose).forEach((line, row) =>
+    Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)),
+  )
+  if (isSweating && mood !== 'sleep' && stage !== 'egg') {
     // A drop drips beside its head when the context fills up.
     put(0, x, beat(500) % 2 === 0 ? "'" : ',', 'suggestion')
   }
@@ -834,4 +865,235 @@ export function pet(
     }
     return runs
   })
+}
+
+// ── Raising the pet ──────────────────────────────────────────────────
+
+export type PetStage = PetLifeStage
+
+/** The stages a pet grows through, by the days it has been looked after. */
+export const PET_STAGES: { id: PetStage; name: string; fromDays: number }[] = [
+  { id: 'egg', name: 'Egg', fromDays: 0 },
+  { id: 'baby', name: 'Baby', fromDays: 1 },
+  { id: 'kid', name: 'Kid', fromDays: 3 },
+  { id: 'adult', name: 'Grown-up', fromDays: 7 },
+  { id: 'elder', name: 'Elder', fromDays: 30 },
+]
+/** Turns before the egg hatches. */
+export const PET_HATCH_TURNS = 3
+/** Turns a day that still feed it; more on one day add nothing. */
+export const PET_DAY_TURNS = 20
+const DAY_MS = 86_400_000
+const MAX_DAYS_KEPT = 400
+
+export type PetHunger = 'full' | 'peckish' | 'hungry' | 'starving'
+
+export type PetStats = {
+  stage: PetStage
+  stageName: string
+  /** Days since it hatched from the first turn, counting today. */
+  ageDays: number
+  activeDays: number
+  /** Days in a row with a turn, up to today or yesterday. */
+  streak: number
+  /** Days with a turn among the last seven, today included. */
+  weekDays: number
+  xp: number
+  level: number
+  levelFrom: number
+  levelTo: number
+  hunger: PetHunger
+  /** 0 to 5, from how many of the last seven days had a turn. */
+  hearts: number
+  /** The next stage and how many more active days it needs, or null at the last. */
+  next: { name: string; days: number } | null
+}
+
+/** The local calendar day of `ms`, as YYYY-MM-DD. */
+export function dayKey(ms: number): string {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+export function newPetLife(now: number): PetLife {
+  return { name: 'Clawd', bornAt: now, days: {}, lastFedAt: null, turns: 0, skin: 'classic', achievements: {} }
+}
+
+/** A saved pet read back; a missing or broken one starts over as a new egg. */
+export function petLifeFrom(saved: unknown, now: number): PetLife {
+  if (saved === null || typeof saved !== 'object') return newPetLife(now)
+  const v = saved as Record<string, unknown>
+  const days: Record<string, number> = {}
+  if (v.days !== null && typeof v.days === 'object') {
+    for (const [k, n] of Object.entries(v.days as Record<string, unknown>)) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(k) && typeof n === 'number' && n > 0) days[k] = Math.floor(n)
+    }
+  }
+  return {
+    name: typeof v.name === 'string' && v.name.trim() !== '' ? v.name.trim().slice(0, 24) : 'Clawd',
+    bornAt: typeof v.bornAt === 'number' ? v.bornAt : now,
+    days,
+    lastFedAt: typeof v.lastFedAt === 'number' ? v.lastFedAt : null,
+    turns: typeof v.turns === 'number' && v.turns >= 0 ? Math.floor(v.turns) : 0,
+    skin: typeof v.skin === 'string' && PET_SKINS.some(k => k.id === v.skin) ? v.skin : 'classic',
+    achievements: Object.fromEntries(
+      Object.entries(v.achievements !== null && typeof v.achievements === 'object' ? v.achievements : {}).filter(
+        ([id, at]) => PET_ACHIEVEMENTS.some(a => a.id === id) && typeof at === 'number',
+      ),
+    ) as Record<string, number>,
+  }
+}
+
+/** The pet after one turn: fed now, and today counted as a day looked after. */
+export function feedPet(life: PetLife, now: number): PetLife {
+  const today = dayKey(now)
+  const days = { ...life.days, [today]: (life.days[today] ?? 0) + 1 }
+  const keys = Object.keys(days).sort()
+  for (const k of keys.slice(0, Math.max(0, keys.length - MAX_DAYS_KEPT))) delete days[k]
+  return { ...life, days, lastFedAt: now, turns: life.turns + 1 }
+}
+
+/** XP needed to reach `level`. */
+export function levelXp(level: number): number {
+  return 50 * (level - 1) ** 2
+}
+
+/** Everything the pet is at `now`, from its record. */
+export function petStats(life: PetLife, now: number): PetStats {
+  const active = Object.keys(life.days).filter(k => (life.days[k] ?? 0) > 0)
+  const activeDays = active.length
+  const has = (offset: number) => (life.days[dayKey(now - offset * DAY_MS)] ?? 0) > 0
+
+  let streak = 0
+  for (let i = has(0) ? 0 : 1; has(i); i++) streak++
+  let weekDays = 0
+  for (let i = 0; i < 7; i++) if (has(i)) weekDays++
+
+  // Each day looked after: 20, and 5 a turn up to the day's cap; a streak adds 10 a day.
+  const xp =
+    active.reduce((sum, k) => sum + 20 + Math.min(PET_DAY_TURNS, life.days[k] ?? 0) * 5, 0) + streak * 10
+  const level = Math.floor(Math.sqrt(xp / 50)) + 1
+
+  const grown = [...PET_STAGES].reverse().find(s => s.id !== 'egg' && activeDays >= s.fromDays)
+  const stage = life.turns < PET_HATCH_TURNS || grown === undefined ? PET_STAGES[0]! : grown
+  const after = PET_STAGES[PET_STAGES.indexOf(stage) + 1]
+  const next =
+    stage.id === 'egg'
+      ? { name: 'Baby', days: 0 }
+      : after === undefined
+        ? null
+        : { name: after.name, days: Math.max(0, after.fromDays - activeDays) }
+
+  // An egg that has never been fed is not hungry yet.
+  const fedAgo = life.lastFedAt === null ? 0 : now - life.lastFedAt
+  const hunger: PetHunger =
+    fedAgo < 4 * 3_600_000 ? 'full' : fedAgo < 24 * 3_600_000 ? 'peckish' : fedAgo < 72 * 3_600_000 ? 'hungry' : 'starving'
+
+  const first = active.sort()[0]
+  const ageDays = first === undefined ? 0 : Math.max(1, Math.round((Date.parse(dayKey(now)) - Date.parse(first)) / DAY_MS) + 1)
+
+  return {
+    stage: stage.id,
+    stageName: stage.name,
+    ageDays,
+    activeDays,
+    streak,
+    weekDays,
+    xp,
+    level,
+    levelFrom: levelXp(level),
+    levelTo: levelXp(level + 1),
+    hunger,
+    hearts: Math.min(5, Math.ceil((weekDays * 5) / 7)),
+    next,
+  }
+}
+
+/** Turns on each of the last `count` days, oldest first, today last. */
+export function petDays(life: PetLife, now: number, count: number): number[] {
+  return Array.from({ length: count }, (_, i) => life.days[dayKey(now - (count - 1 - i) * DAY_MS)] ?? 0)
+}
+
+// ── Achievements and skins ───────────────────────────────────────────
+
+export type PetAchievement = {
+  id: string
+  name: string
+  hint: string
+  /** Whether a turn at `now` that took the pet from `before` to `after` earns it. */
+  earned: (s: { before: PetLife; after: PetLife; stats: PetStats; now: number }) => boolean
+}
+
+const hourOf = (ms: number) => new Date(ms).getHours()
+
+export const PET_ACHIEVEMENTS: PetAchievement[] = [
+  { id: 'hatched', name: 'Hatched', hint: 'Hatch the egg', earned: s => s.stats.stage !== 'egg' },
+  { id: 'streak-3', name: 'Three in a row', hint: 'Use Claude 3 days in a row', earned: s => s.stats.streak >= 3 },
+  { id: 'streak-7', name: 'Full week', hint: 'Use Claude 7 days in a row', earned: s => s.stats.streak >= 7 },
+  { id: 'streak-30', name: 'Devoted', hint: 'Use Claude 30 days in a row', earned: s => s.stats.streak >= 30 },
+  { id: 'grown', name: 'All grown up', hint: 'Look after it on 7 days', earned: s => s.stats.activeDays >= 7 },
+  { id: 'elder', name: 'Wise old friend', hint: 'Look after it on 30 days', earned: s => s.stats.activeDays >= 30 },
+  { id: 'meals-100', name: 'Hundred meals', hint: 'Finish 100 turns', earned: s => s.after.turns >= 100 },
+  { id: 'meals-1000', name: 'Feast', hint: 'Finish 1,000 turns', earned: s => s.after.turns >= 1000 },
+  {
+    id: 'busy-day',
+    name: 'Busy day',
+    hint: 'Finish 20 turns in one day',
+    earned: s => (s.after.days[dayKey(s.now)] ?? 0) >= PET_DAY_TURNS,
+  },
+  { id: 'night-owl', name: 'Night owl', hint: 'Finish a turn between midnight and 5 am', earned: s => hourOf(s.now) < 5 },
+  {
+    id: 'early-bird',
+    name: 'Early bird',
+    hint: 'Finish a turn between 5 and 7 am',
+    earned: s => hourOf(s.now) >= 5 && hourOf(s.now) < 7,
+  },
+  {
+    id: 'weekend',
+    name: 'Weekend coder',
+    hint: 'Finish a turn on a Saturday or Sunday',
+    earned: s => [0, 6].includes(new Date(s.now).getDay()),
+  },
+  {
+    id: 'comeback',
+    name: 'Welcome back',
+    hint: 'Come back after leaving it hungry for 3 days',
+    earned: s => s.before.lastFedAt !== null && s.now - s.before.lastFedAt >= 72 * 3_600_000,
+  },
+]
+
+/** Each skin: the theme color the pet is painted in, and the achievement that unlocks it. */
+export const PET_SKINS: { id: string; name: string; color: string; unlock: string | null }[] = [
+  { id: 'classic', name: 'Classic', color: 'claude', unlock: null },
+  { id: 'mint', name: 'Mint', color: 'success', unlock: 'streak-3' },
+  { id: 'ocean', name: 'Ocean', color: 'suggestion', unlock: 'grown' },
+  { id: 'grape', name: 'Grape', color: 'permission', unlock: 'weekend' },
+  { id: 'midnight', name: 'Midnight', color: 'inactive', unlock: 'night-owl' },
+  { id: 'ember', name: 'Ember', color: 'error', unlock: 'busy-day' },
+  { id: 'ghost', name: 'Ghost', color: 'text', unlock: 'comeback' },
+  { id: 'gold', name: 'Gold', color: 'warning', unlock: 'elder' },
+]
+
+/** Whether `life` may wear the skin `id`. */
+export function hasSkin(life: PetLife, id: string): boolean {
+  const skin = PET_SKINS.find(k => k.id === id)
+  return skin !== undefined && (skin.unlock === null || life.achievements[skin.unlock] !== undefined)
+}
+
+/**
+ * The pet after a turn at `now`, fed, with the achievements it newly earned
+ * recorded, and those achievements, in list order.
+ */
+export function feedAndAward(life: PetLife, now: number): { life: PetLife; earned: PetAchievement[] } {
+  const after = feedPet(life, now)
+  const stats = petStats(after, now)
+  const earned = PET_ACHIEVEMENTS.filter(
+    a => after.achievements[a.id] === undefined && a.earned({ before: life, after, stats, now }),
+  )
+  if (earned.length === 0) return { life: after, earned }
+  return {
+    life: { ...after, achievements: { ...after.achievements, ...Object.fromEntries(earned.map(a => [a.id, now])) } },
+    earned,
+  }
 }

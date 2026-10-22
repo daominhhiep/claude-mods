@@ -9,6 +9,7 @@ import type {
   CallRecord,
   CockpitTab,
   DiffStep,
+  PetLife,
   PinnedSession,
   PromptCost,
   WeatherReading,
@@ -57,6 +58,15 @@ import {
   pet,
   petMood,
   PET_WIDTH,
+  PET_ACHIEVEMENTS,
+  PET_HATCH_TURNS,
+  PET_SKINS,
+  feedAndAward,
+  hasSkin,
+  petDays,
+  petLifeFrom,
+  petStats,
+  newPetLife,
   waveColor,
   ringGlow,
   smoothBar,
@@ -96,6 +106,7 @@ const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude
 const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEFAULT_EFFECTS)
 const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
 const flashAt = atom({ plugin: 'session-cockpit', key: 'flash' } as const, null)
+const petLife = atom({ plugin: 'session-cockpit', key: 'petLife' } as const, newPetLife(0))
 
 // How wide the band last drew, so the pet knows how far it can run in the chat.
 let chatColumns = 80
@@ -122,18 +133,37 @@ const TYPE_CHAR_MS = 8
 const TYPE_MAX_MS = 1_200
 const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
+const PET_KEY = 'petLife'
 const WARN_DAYS = 7
 
-const TABS: { id: CockpitTab; label: string; short: string; hotkey: string }[] = [
-  { id: 'weather', label: 'Context', short: 'Context', hotkey: '1' },
-  { id: 'agents', label: 'Agents', short: 'Agents', hotkey: '2' },
-  { id: 'sessions', label: 'Sessions', short: 'Pins', hotkey: '3' },
-  { id: 'blast', label: 'Guard', short: 'Guard', hotkey: '4' },
-  { id: 'replay', label: 'Changes', short: 'Diff', hotkey: '5' },
-  { id: 'log', label: 'Activity', short: 'Log', hotkey: '6' },
-  { id: 'theme', label: 'Theme', short: 'Theme', hotkey: '7' },
-  { id: 'config', label: 'Config', short: '⚙', hotkey: '8' },
+// Five groups across the top; a group of several shows its own tabs below.
+const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab; label: string }[] }[] = [
+  { id: 'weather', label: 'Context', icon: '◔', tabs: [{ id: 'weather', label: 'Context' }] },
+  {
+    id: 'work',
+    label: 'Work',
+    icon: '≡',
+    tabs: [
+      { id: 'log', label: 'Log' },
+      { id: 'agents', label: 'Agents' },
+      { id: 'blast', label: 'Guard' },
+      { id: 'replay', label: 'Diff' },
+    ],
+  },
+  { id: 'sessions', label: 'Pins', icon: '★', tabs: [{ id: 'sessions', label: 'Pins' }] },
+  { id: 'pet', label: 'Pet', icon: '♥', tabs: [{ id: 'pet', label: 'Pet' }] },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: '⚙',
+    tabs: [
+      { id: 'theme', label: 'Theme' },
+      { id: 'config', label: 'Effects' },
+    ],
+  },
 ]
+// The tab last open in each group, so a group opens where it was left.
+const lastInGroup = new Map<string, CockpitTab>()
 
 async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void> {
   await update($, pins, () => list)
@@ -142,6 +172,26 @@ async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void
   } catch {
     // The pane still shows the list; it is saved again on the next change.
   }
+}
+
+/** Saves the pet after `change`, applied to the freshest copy: another session may have fed it. */
+async function savePet($: EngineInterface, change: (life: PetLife) => PetLife): Promise<PetLife> {
+  const now = await $.clock.now()
+  let base = await read($, petLife)
+  try {
+    const stored = await $.store.get(PET_KEY)
+    if (stored !== undefined) base = petLifeFrom(stored, now)
+  } catch {
+    // The copy in this session stands in.
+  }
+  const next = change(base)
+  await update($, petLife, () => next)
+  try {
+    await $.store.set(PET_KEY, next)
+  } catch {
+    // Kept for this session; saved again on the next change.
+  }
+  return next
 }
 
 /** True while something moves: a prompt or agent runs, a guard waits, the cache is about to go cold. */
@@ -396,6 +446,11 @@ export const register: Register = (on, options) => {
       name: 'unpin',
       description: 'Unpin this session',
     })
+    await $.command.register({
+      name: 'pet',
+      description: 'See how your pet is doing, or name it, e.g. /pet Mochi',
+      argumentHint: '[name]',
+    })
     try {
       const id = await $.session.id()
       await update($, sessionId, () => id)
@@ -410,6 +465,9 @@ export const register: Register = (on, options) => {
     } catch {
       // Pins load on the next session start.
     }
+    // The pet loads on its own, so a failing read above never leaves it unborn.
+    const bornAt = await $.clock.now()
+    await savePet($, l => (l.bornAt === 0 ? { ...l, bornAt } : l))
     void $.ui.open({ id: PANE, title: TITLE })
     try {
       const model = await $.session.model()
@@ -478,6 +536,22 @@ export const register: Register = (on, options) => {
         `Pinned "${label}". Open it later from /cockpit (Sessions), or with /resume ${name !== null && renamed ? name : id}.` +
         (name !== null && !renamed ? ` Run /rename ${name} so /resume shows the name too.` : ''),
     }
+  })
+
+  on('command.run', { command: 'pet' }, async ($, e) => {
+    const name = String(e.args ?? '').trim()
+    const now = await $.clock.now()
+    if (name === '') {
+      const life = await savePet($, l => l)
+      const st = petStats(life, now)
+      return {
+        text: `${life.name} is a ${st.stageName.toLowerCase()} at level ${st.level}: ${st.hunger}, ${st.streak}-day streak, ${
+          Object.keys(life.achievements).length
+        } of ${PET_ACHIEVEMENTS.length} achievements. The Pet tab in /cockpit shows the rest.`,
+      }
+    }
+    const life = await savePet($, l => ({ ...l, name: name.slice(0, 24) }))
+    return { text: `Your pet is now called ${life.name}.` }
   })
 
   on('command.run', { command: 'unpin' }, async $ => {
@@ -658,6 +732,31 @@ export const register: Register = (on, options) => {
           : p,
       ),
     )
+    // Each turn feeds the pet, which is kept across sessions.
+    {
+      const at = await $.clock.now()
+      let earned: typeof PET_ACHIEVEMENTS = []
+      let before: PetLife | null = null
+      const life = await savePet($, l => {
+        before = l
+        const r = feedAndAward(l, at)
+        earned = r.earned
+        return r.life
+      })
+      if (fx.pet && before !== null) {
+        const was = petStats(before, at)
+        const is = petStats(life, at)
+        const news: string[] = []
+        if (is.stage !== was.stage) {
+          news.push(was.stage === 'egg' ? `${life.name} hatched!` : `${life.name} grew into a ${is.stageName.toLowerCase()}!`)
+        } else if (is.level > was.level) news.push(`${life.name} reached level ${is.level}.`)
+        for (const a of earned) {
+          const skin = PET_SKINS.find(k => k.unlock === a.id)
+          news.push(`Achievement: ${a.name}${skin === undefined ? '' : ` (new skin: ${skin.name})`}`)
+        }
+        if (news.length > 0) $.ui.toast(news.join(' · '))
+      }
+    }
     if (fx.fireworks) {
       const turn = (await read($, costs)).find(p => p.id === e.turnId)
       const at = await $.clock.now()
@@ -1011,7 +1110,7 @@ export const register: Register = (on, options) => {
     ].filter(x => x !== null)
 
     // ── The frame, drawn by hand so its title sits on the border, with the
-    // effects the Config tab turns on.
+    // effects Settings · Effects turns on.
     const fx = await read($, effects)
     const boom = await read($, burstAt)
     const boomSince = boom === null ? Infinity : now - boom.at
@@ -1037,6 +1136,8 @@ export const register: Register = (on, options) => {
     // While Claude works the pet is out running in the chat, under the
     // spinner; its yard waits empty.
     const isPetAway = showPet && redrawTranscript && working2
+    const life = await read($, petLife)
+    const lifeStats = petStats(life, now)
     const petRows = isPetAway
       ? [0, 1, 2].map(() => [{ text: ' '.repeat(PET_WIDTH), color: '' }])
       : showPet
@@ -1050,9 +1151,13 @@ export const register: Register = (on, options) => {
               lastCall !== undefined && lastCall.status === 'error' && lastCall.ms !== null
                 ? lastCall.startedAt + lastCall.ms
                 : null,
+            isHungry: lifeStats.hunger === 'hungry' || lifeStats.hunger === 'starving',
           }),
           now,
           pctShown !== undefined && pctShown >= 75,
+          PET_WIDTH,
+          lifeStats.stage,
+          life.skin,
         )
       : null
 
@@ -1316,10 +1421,11 @@ export const register: Register = (on, options) => {
     })
     const readings = await read($, weather)
     const isSweating = (readings.at(-1)?.percent ?? 0) >= 75
+    const life = await read($, petLife)
     return (
       <Box flexDirection="column">
         {line}
-        {pet(mood, now, isSweating, chatColumns - 2).map((row, r) => (
+        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin).map((row, r) => (
           <Box key={`pet-${r}`} height={1} overflow="hidden">
             <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
           </Box>
@@ -1470,9 +1576,19 @@ export const register: Register = (on, options) => {
     const f = await read($, paneFrame)
     const allCosts = await read($, costs)
     const busy = allCosts.some(p => p.durationMs === null)
-    // Full labels when the row holds them, short ones when not: the tabs never wrap.
-    const tabWidth = (pick: 'label' | 'short') => TABS.reduce((n, t) => n + t[pick].length + 3, 0)
-    const isNarrow = tabWidth('label') > width
+    // The groups keep to one row: every label when they fit, else the open
+    // group named and the rest as icons, else icons alone.
+    const group = GROUPS.find(g => g.tabs.some(t => t.id === current)) ?? GROUPS[0]!
+    lastInGroup.set(group.id, current)
+    const rowFits = (cells: number[]) => cells.reduce((n, c) => n + c + 1, 0) - 1 <= width
+    const isNarrow = !rowFits(GROUPS.map(g => g.label.length + 2))
+    const tabMode = !isNarrow
+      ? 'label'
+      : rowFits(GROUPS.map(g => (g === group ? g.label.length + 4 : 3)))
+        ? 'mixed'
+        : 'icon'
+    const groupText = (g: (typeof GROUPS)[number]) =>
+      tabMode === 'label' ? g.label : tabMode === 'mixed' && g === group ? `${g.icon} ${g.label}` : g.icon
 
     // Three cards across the top: context, cost, working time.
     await read($, tick)
@@ -1568,19 +1684,43 @@ export const register: Register = (on, options) => {
             <Text color={paint(f % 2 === 0 ? 'success' : 'inactive')}>● idle</Text>
           )}
         </Box>
-        <Box flexDirection="row" columnGap={1} flexWrap="wrap" marginTop={1}>
-          {TABS.map(t => (
-            <Button key={`tab-${t.id}`} plain onPress={() => update($, tab, () => t.id)}>
-              {t.id === current ? (
+        <Box flexDirection="row" columnGap={1} marginTop={1} overflow="hidden">
+          {GROUPS.map(g => (
+            <Button
+              key={`group-${g.id}`}
+              plain
+              onPress={() => update($, tab, () => lastInGroup.get(g.id) ?? g.tabs[0]!.id)}
+            >
+              {g === group ? (
                 <Text backgroundColor={paint('claude')} color={paint('inverseText')} bold>
-                  {` ${isNarrow ? t.short : t.label} `}
+                  {` ${groupText(g)} `}
                 </Text>
               ) : (
-                <Text color={paint('subtle')}>{` ${isNarrow ? t.short : t.label} `}</Text>
+                <Text color={paint('subtle')}>{` ${groupText(g)} `}</Text>
               )}
             </Button>
           ))}
         </Box>
+        {group.tabs.length < 2 ? null : (
+          <Box flexDirection="row" marginTop={1} overflow="hidden">
+            {group.tabs.flatMap((t, i) => [
+              i === 0 ? null : (
+                <Text key={`tab-gap-${t.id}`} color={paint('inactive')}>
+                  {' · '}
+                </Text>
+              ),
+              <Button key={`tab-${t.id}`} plain onPress={() => update($, tab, () => t.id)}>
+                {t.id === current ? (
+                  <Text color={paint('claude')} bold underline>
+                    {t.label}
+                  </Text>
+                ) : (
+                  <Text color={paint('subtle')}>{t.label}</Text>
+                )}
+              </Button>,
+            ])}
+          </Box>
+        )}
         {rule}
         {cards}
       </Box>
@@ -2067,6 +2207,144 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
+    } else if (current === 'pet') {
+      const life = await read($, petLife)
+      const nowPet = await $.clock.now()
+      const st = petStats(life, nowPet)
+      const isOn = (await read($, effects)).pet
+      const hungerLook = {
+        full: { label: 'Full', color: 'success' },
+        peckish: { label: 'Peckish', color: 'claude' },
+        hungry: { label: 'Hungry', color: 'warning' },
+        starving: { label: 'Starving', color: 'error' },
+      } as const
+      const sprite = pet(
+        petMood({
+          now: nowPet,
+          isWorking: busy,
+          isCold: false,
+          turnEndedAt: null,
+          failedAt: null,
+          isHungry: st.hunger === 'hungry' || st.hunger === 'starving',
+        }),
+        nowPet,
+        false,
+        Math.min(Math.max(PET_WIDTH, width), 28),
+        st.stage,
+        life.skin,
+      )
+      const barWidth = Math.max(8, Math.min(20, width - 24))
+      const share = Math.max(0, Math.min(1, (st.xp - st.levelFrom) / Math.max(1, st.levelTo - st.levelFrom)))
+      const filled = Math.round(share * barWidth)
+      const days = petDays(life, nowPet, 14)
+      const dayLook = (n: number) =>
+        n === 0
+          ? { ch: '·', color: 'inactive' }
+          : n < 5
+            ? { ch: '▃', color: 'subtle' }
+            : n < 15
+              ? { ch: '▅', color: 'claude' }
+              : { ch: '█', color: 'success' }
+      const growth =
+        st.stage === 'egg'
+          ? `Hatches after ${Math.max(1, PET_HATCH_TURNS - life.turns)} more ${PET_HATCH_TURNS - life.turns === 1 ? 'turn' : 'turns'}`
+          : st.next === null
+            ? 'Fully grown'
+            : `${st.next.name} in ${st.next.days} more ${st.next.days === 1 ? 'day' : 'days'} of use`
+      const earned = PET_ACHIEVEMENTS.filter(a => life.achievements[a.id] !== undefined).length
+      const skinsOwned = PET_SKINS.filter(k => hasSkin(life, k.id)).length
+      body = (
+        <Box flexDirection="column" gap={1}>
+          {heading(life.name, `${st.stageName} · level ${st.level}`)}
+          <Box flexDirection="column">
+            {sprite.map((row, r) => (
+              <Text key={`pet-big-${r}`}>
+                {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
+              </Text>
+            ))}
+          </Box>
+          <Box flexDirection="column">
+            <Text>
+              <Text bold>{`Lv ${st.level} `}</Text>
+              <Text color={paint('claude')}>{'▰'.repeat(filled)}</Text>
+              <Text color={paint('inactive')}>{'▱'.repeat(barWidth - filled)}</Text>
+              <Text color={paint('inactive')}>{` ${st.xp - st.levelFrom}/${st.levelTo - st.levelFrom} XP`}</Text>
+            </Text>
+            <Text>
+              <Text color={paint('inactive')}>Food </Text>
+              <Text color={paint(hungerLook[st.hunger].color)} bold>
+                {hungerLook[st.hunger].label}
+              </Text>
+              <Text color={paint('inactive')}>{'   Mood '}</Text>
+              <Text color={paint('error')}>{'●'.repeat(st.hearts)}</Text>
+              <Text color={paint('inactive')}>{'○'.repeat(5 - st.hearts)}</Text>
+            </Text>
+            <Text color={paint('inactive')} wrap="wrap">
+              {`${st.ageDays} ${st.ageDays === 1 ? 'day' : 'days'} old · used on ${st.activeDays} ${
+                st.activeDays === 1 ? 'day' : 'days'
+              } · ${st.streak}-day streak`}
+            </Text>
+            <Text color={paint('subtle')}>{growth}</Text>
+          </Box>
+          <Box flexDirection="column">
+            {heading('Last 14 days', 'today on the right')}
+            <Text>
+              {days.map(n => {
+                const d = dayLook(n)
+                return <Text color={paint(d.color)}>{`${d.ch} `}</Text>
+              })}
+            </Text>
+          </Box>
+          <Box flexDirection="column">
+            {heading('Skins', `${skinsOwned} of ${PET_SKINS.length}`)}
+            {PET_SKINS.map(k => {
+              const owned = hasSkin(life, k.id)
+              const worn = life.skin === k.id
+              const need = PET_ACHIEVEMENTS.find(a => a.id === k.unlock)
+              return (
+                <Button
+                  key={`skin-${k.id}`}
+                  plain
+                  onPress={async () => {
+                    if (!owned) {
+                      $.ui.toast(`${k.name} unlocks with the achievement ${need?.name ?? ''}: ${need?.hint ?? ''}.`)
+                      return
+                    }
+                    await savePet($, l => ({ ...l, skin: k.id }))
+                  }}
+                >
+                  <Text color={paint(worn ? 'claude' : 'subtle')} bold={worn}>
+                    {worn ? '◉ ' : '○ '}
+                  </Text>
+                  <Text color={paint(owned ? k.color : 'inactive')}>{owned ? '███' : '░░░'}</Text>
+                  <Text bold={worn} color={owned ? undefined : paint('inactive')}>{`  ${k.name}`}</Text>
+                  {owned || need === undefined ? null : (
+                    <Text color={paint('inactive')}>{`  · ${need.name}`}</Text>
+                  )}
+                </Button>
+              )
+            })}
+          </Box>
+          <Box flexDirection="column">
+            {heading('Achievements', `${earned} of ${PET_ACHIEVEMENTS.length}`)}
+            {PET_ACHIEVEMENTS.map(a => {
+              const got = life.achievements[a.id] !== undefined
+              return (
+                <Text key={`ach-${a.id}`} wrap="truncate-end">
+                  <Text color={paint(got ? 'success' : 'inactive')}>{got ? '✓ ' : '○ '}</Text>
+                  <Text bold={got} color={got ? undefined : paint('subtle')}>{a.name}</Text>
+                  <Text color={paint('inactive')}>{`  ${a.hint}`}</Text>
+                </Text>
+              )
+            })}
+          </Box>
+          <Text color={paint('inactive')} wrap="wrap">
+            {isOn
+              ? 'Every turn feeds it. Each day you use Claude helps it grow, and days in a row earn extra XP. Name it with /pet and a name.'
+              : 'The pet is hidden from the band; turn Claude pet on in Settings, under Effects, to see it there.'}
+          </Text>
+        </Box>
+      )
     } else if (current === 'config') {
       const fx = await read($, effects)
       const save = async (next: typeof fx) => {

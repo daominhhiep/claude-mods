@@ -18,7 +18,7 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 
 Values sit on solid colored pills, the context gauge spans the band in eighths of a cell with a light running along it while Claude works, and a light circles the frame (fast while working, slow while idle).
 
-Effects, each turned on or off in the Config tab:
+Effects, each turned on or off in Settings · Effects:
 
 - **Fireworks** burst across the band for two seconds when a turn ends, with its time and cost.
 - **Flash** at 25, 50, 75 and 90% of the compact limit: the frame flashes and names the level.
@@ -50,18 +50,31 @@ Tool output stays Claude Code's own. Set `transcriptStyle` to `claude` to leave 
 
 **Pane (`/cockpit`)**
 
-Three cards head every tab: context with its trend, cost with each prompt's share, and working time. The tabs stay on one row, with short names in a narrow pane.
+Three cards head every tab: context with its trend, cost with each prompt's share, and working time. Five groups sit on one row (Context, Work, Pins, Pet, Settings), shown as icons with only the open one named when the pane is narrow; Work and Settings have their own tabs below.
 
-| Tab | What it shows |
+| Group · tab | What it shows |
 | --- | --- |
 | Context | Context gauge and trend; time, cost (with a bar against the dearest prompt) and tokens for each prompt and its subagents |
-| Agents | Live tree of subagents: status, duration, tool count, tokens in and out, share read from cache, the tool running now |
-| Sessions | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
-| Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
-| Changes | Each file edit as a diff, step by step (Prev / Next / Latest) |
-| Activity | Every tool call: time, tool, duration, target, result |
-| Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
-| Config | Turn each effect on or off; kept for every session |
+| Work · Log | Every tool call: time, tool, duration, target, result |
+| Work · Agents | Live tree of subagents: status, duration, tool count, tokens in and out, share read from cache, the tool running now |
+| Work · Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
+| Work · Diff | Each file edit as a diff, step by step (Prev / Next / Latest) |
+| Pins | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
+| Pet | Your pet: stage, level and XP, food, mood, age and streak, the last 14 days, skins to wear and achievements |
+| Settings · Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
+| Settings · Effects | Turn each effect on or off; kept for every session |
+
+**Raising the pet**
+
+The pet is kept across sessions and grows with how often you use Claude Code. Every finished turn feeds it.
+
+- **Stages**: an egg hatches after 3 turns, then Baby, Kid (3 days of use), Grown-up (7) and Elder (30).
+- **Level**: each day you use Claude earns 20 XP plus 5 a turn (up to 20 turns a day); a streak of days in a row adds 10 a day.
+- **Food**: full for 4 hours after a turn, then peckish, hungry after a day and starving after three. A hungry pet turns grey and asks for food.
+- **Mood**: up to five dots, from how many of the last seven days you used Claude.
+- **Achievements** (13): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, and coming back after three days away.
+- **Skins**: Classic, plus seven more colors, each unlocked by an achievement; pick one in the Pet tab.
+- `/pet` shows how it is doing; `/pet Mochi` names it.
 
 **Guards**
 
