@@ -494,6 +494,18 @@ test('pinning keeps a named session one press away', async ($, on) => {
     filled.push(e.text)
     return { isFilled: true } as never
   })
+  // Two sessions open on this computer: this one, and one working elsewhere.
+  const record = (pid: number, sessionId: string, cwd: string, name: string, status: string) =>
+    JSON.stringify({ pid, sessionId, cwd, name, status, startedAt: 1_700_000_000_000 - 3_600_000 })
+  on('process.run', () => ({
+    value: {
+      exitCode: 0,
+      stdout: `${record(1, 'sess-1', '/repo/app', 'app-1', 'idle')}\n${record(2, 'sess-2', '/repo/api', 'api-7', 'busy')}\n`,
+      stderr: '',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
   await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
 
   const pinned = (await $.command.run({ command: 'pin', args: 'finance export' } as never)) as { text: string }
@@ -504,9 +516,15 @@ test('pinning keeps a named session one press away', async ($, on) => {
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'group-sessions' })
-    expect((await ui.find({ type: 'Text', text: /finance export/ }))?.text).toBe('★ finance export')
+    expect((await ui.find({ type: 'Text', text: /^★ finance export/ }))?.text).toBe('★ finance export')
     expect(await ui.find({ type: 'Text', text: /this session/ })).toBeDefined()
-    expect((await ui.find({ type: 'Text', text: /app ·/ }))?.text).toBe('app · just now · $3.20')
+    expect((await ui.find({ type: 'Text', text: /^app · just now/ }))?.text).toBe('app · just now · $3.20')
+    // Every session open on this computer, whatever the project, working first.
+    expect(await ui.find({ type: 'Text', text: /OPEN ON THIS COMPUTER/ })).toBeDefined()
+    const open = (await ui.findAll({ type: 'Text', text: /· started / })).map(t => t.text)
+    expect(open[0]).toMatch(/^● api-7 · api · started/)
+    expect(open.some(t => /finance export · app/.test(t))).toBe(true)
+    expect(await ui.find({ type: 'Text', text: 'Working' })).toBeDefined()
     await ui.unmount()
   }
 

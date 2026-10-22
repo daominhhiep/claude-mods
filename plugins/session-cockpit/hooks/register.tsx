@@ -193,6 +193,48 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
 // The tab last open in each group, so a group opens where it was left.
 const lastInGroup = new Map<string, CockpitTab>()
 
+/** A Claude Code session open on this computer, as its own record says. */
+type LiveSession = { pid: number; id: string; cwd: string; name: string; isBusy: boolean; startedAt: number }
+
+// Every open Claude Code session keeps a small record under ~/.claude/sessions,
+// named by its process id; a record whose process is gone is left out. Read
+// at most every few seconds, and only while the Pins tab is open.
+const LIVE_SCRIPT =
+  'for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do ' +
+  'p=$(basename "$f" .json); kill -0 "$p" 2>/dev/null && { tr -d "\\n" < "$f"; echo; }; done; true'
+const LIVE_EVERY_MS = 5_000
+let liveSeen: { at: number; isKnown: boolean; list: LiveSession[] } = { at: -Infinity, isKnown: false, list: [] }
+
+async function liveSessions($: EngineInterface, now: number): Promise<typeof liveSeen> {
+  if (now - liveSeen.at < LIVE_EVERY_MS) return liveSeen
+  liveSeen = { ...liveSeen, at: now }
+  try {
+    const ran = await $.process.run(['sh', '-c', LIVE_SCRIPT], { timeoutMs: 3000 })
+    const list = ran.stdout.split('\n').flatMap((line): LiveSession[] => {
+      try {
+        const v = JSON.parse(line) as Record<string, unknown>
+        if (typeof v.sessionId !== 'string' || typeof v.cwd !== 'string' || typeof v.pid !== 'number') return []
+        return [
+          {
+            pid: v.pid,
+            id: v.sessionId,
+            cwd: v.cwd,
+            name: typeof v.name === 'string' && v.name !== '' ? v.name : baseName(v.cwd),
+            isBusy: v.status === 'busy',
+            startedAt: typeof v.startedAt === 'number' ? v.startedAt : now,
+          },
+        ]
+      } catch {
+        return []
+      }
+    })
+    liveSeen = { at: now, isKnown: true, list }
+  } catch {
+    // No commands on this surface: the list is not known here.
+  }
+  return liveSeen
+}
+
 async function savePins($: EngineInterface, list: PinnedSession[]): Promise<void> {
   await update($, pins, () => list)
   try {
@@ -2189,6 +2231,9 @@ export const register: Register = (on, options) => {
       )
       const isPinned = here !== null && all.some(p => p.id === here)
       const otherCount = all.filter(p => p.cwd !== cwd).length
+      const live = await liveSessions($, now)
+      const open = [...live.list].sort((a, b) => Number(b.isBusy) - Number(a.isBusy) || b.startedAt - a.startedAt)
+      const isOpen = (id: string) => id !== here && live.list.some(s => s.id === id)
       body = (
         <Box flexDirection="column" gap={1}>
           <Box flexDirection="row" columnGap={1} flexWrap="wrap">
@@ -2213,6 +2258,32 @@ export const register: Register = (on, options) => {
               onPress={() => update($, pinScope, s => (s === 'project' ? 'all' : 'project'))}
             />
           </Box>
+          {live.isKnown ? (
+            <Box flexDirection="column">
+              {heading('Open on this computer', `${open.length} ${open.length === 1 ? 'session' : 'sessions'}`)}
+              {open.slice(0, 12).map(s => {
+                const pin = all.find(p => p.id === s.id)
+                const isHere = s.id === here
+                return (
+                  <Box key={`live-${s.id}`} flexDirection="row" justifyContent="space-between" columnGap={1}>
+                    <Box flexShrink={1}>
+                      <Text wrap="truncate-end">
+                        <Text color={paint(s.isBusy ? 'warning' : 'success')}>{s.isBusy ? '● ' : '○ '}</Text>
+                        <Text bold>{pin?.name ?? s.name}</Text>
+                        <Text color={paint('inactive')}>{` · ${baseName(s.cwd)} · started ${ago(now - s.startedAt)}`}</Text>
+                      </Text>
+                    </Box>
+                    <Box flexShrink={0}>
+                      <Text color={paint(isHere ? 'claude' : s.isBusy ? 'warning' : 'subtle')}>
+                        {isHere ? 'this session' : s.isBusy ? 'Working' : 'Idle'}
+                      </Text>
+                    </Box>
+                  </Box>
+                )
+              })}
+              {open.length > 12 ? <Text color={paint('inactive')}>{`… and ${open.length - 12} more`}</Text> : null}
+            </Box>
+          ) : null}
           {heading(
             scope === 'project' ? `Pinned · ${baseName(cwd)}` : 'Pinned · all projects',
             `${list.length} ${list.length === 1 ? 'session' : 'sessions'}`,
@@ -2260,7 +2331,9 @@ export const register: Register = (on, options) => {
                       </Text>
                     )}
                     <Box flexDirection="row" columnGap={1} marginTop={1}>
-                      {isHere ? null : (
+                      {isHere ? null : isOpen(p.id) ? (
+                        <Text color={paint('warning')}>● Open in another window</Text>
+                      ) : (
                         <Button
                           key={`open-${p.id}`}
                           label="Open"
