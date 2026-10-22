@@ -236,7 +236,7 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     expect(texts.some(t => t.includes('● ready'))).toBe(true)
     const row = texts.find(t => t.includes('spent')) ?? ''
     expect(row).toContain(' $1.42  spent')
-    expect(row).toContain('◷ 5:00  ▰▰▰▰▰ cache')
+    expect(row).toContain('◷ 5:00  ▰▰▰▰▰ stays warm')
     expect(row).toContain('11m 35s session · 1m 35s working')
     expect(texts.some(x => x.includes('last prompt'))).toBe(false)
     await band.unmount()
@@ -244,8 +244,11 @@ test('the band above the prompt shows session cost and time', async ($, on) => {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect((await ui.find({ type: 'Text', text: /Storm/ }))?.text).toBe('⚡ Storm')
     expect(await ui.find({ type: 'Text', text: /^80%$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^\$0\.42$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^1m 35s$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ *\$0\.42$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ *1m 35s$/ })).toBeDefined()
+    // Each card keeps its name beside its history, and a prompt's row never wraps.
+    expect(await ui.find({ type: 'Text', text: 'context' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^  [0-9.]+k read · [0-9.]+k written$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /refactor the data loader/ })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: /code-reviewer/ }))?.text).toContain('40s')
     await ui.unmount()
@@ -368,7 +371,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
   state.now += 100_000
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
-    expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toContain('◷ 3:20  ▰▰▰▱▱ cache')
+    expect((await band.find({ type: 'Text', text: /stays warm/ }))?.text).toContain('◷ 3:20  ▰▰▰▱▱ stays warm')
     const second = (await band.find({ type: 'Text', text: /#101/ }))?.text ?? ''
     expect(second).toContain('⑂ #101 Add an approval gate')
     expect(second).toContain('✓ 1  ✗ 1 · lint failing')
@@ -387,7 +390,7 @@ test('the band shows the cache clock going cold, the PR and running agents', asy
 
   state.now += 300_000
   const cold = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await cold.find({ type: 'Text', text: /cache/ }))?.text).toContain('◷ cold  cache')
+  expect((await cold.find({ type: 'Text', text: /slower/ }))?.text).toContain('◷ cold  next reply is slower')
   await cold.unmount()
 })
 
@@ -451,7 +454,7 @@ test('context is measured against the auto-compact threshold', async ($, on) => 
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const band = await $.ui.mount({ ...BAND, surface } as never)
-    expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('⚠ 93%')
+    expect((await band.find({ type: 'Text', text: /context used/ }))?.text).toContain('⚠ 93%')
     await band.unmount()
 
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -584,6 +587,17 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
   await settings.press({ key: 'group-settings' })
   await settings.press({ key: 'tab-config' })
   expect(await settings.find({ type: 'Text', text: /Theme weather/ })).toBeDefined()
+  await settings.press({ key: 'fx-weather' })
+  // Light mode halves the frames while Claude works; Turn all leaves it be.
+  expect(await settings.find({ type: 'Text', text: /Light mode/ })).toBeDefined()
+  await settings.press({ key: 'fx-light' })
+  await settings.press({ key: 'fx-all' })
+  const ons = async () => (await settings.findAll({ type: 'Text', text: /^ ON  $/ })).length
+  expect(await ons()).toBe(9)
+  await settings.press({ key: 'fx-all' })
+  // Every effect off, Light mode still on.
+  expect(await ons()).toBe(1)
+  await settings.press({ key: 'fx-all' })
   await settings.press({ key: 'fx-weather' })
   await settings.unmount()
   const still = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
@@ -760,7 +774,7 @@ test('the pane and the band read the same live context mid-turn', async ($, on) 
   expect((await ui.find({ type: 'Text', text: /before auto-compact/ }))?.text).toContain('222k of 267k')
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
-  expect((await band.find({ type: 'Text', text: /compact limit/ }))?.text).toContain('83%')
+  expect((await band.find({ type: 'Text', text: /context used/ }))?.text).toContain('83%')
   await band.unmount()
 })
 

@@ -10,7 +10,7 @@ Keeps the numbers that matter in sight while you chat, and stops the commands yo
 
 ```
 ╭─ ◆ COCKPIT ───────────────────────────────────────────────── ⠋ running 1m 03s ▱▰▱▱▱▱ ─╮
-│  ⚡ 81%  of compact limit    $2.54  / $10 spent    ◷ 3:12  ▰▰▰▱▱ cache   47m session · 5m working │
+│  ⚡ 81%  context used    $2.54  / $10 spent    ◷ 3:12  ▰▰▰▱▱ stays warm   47m session · 5m working │
 │ ████████████████████████████████████████████████████████████▌░░░░░░░░░░░░░░░░░░░░░ │
 │ ◆ opus-5-5 · high effort   ⑂ #101 Add an approval gate   ✓ 2  ✗ 1 · lint failing   ⠋ 2 agents │
 ╰─────────────────────────────────────────────────────────────────────────────────────╯
@@ -27,12 +27,13 @@ Effects, each turned on or off in Settings · Effects:
 - **Typing**: each new reply from Claude appears letter by letter, in about a second.
 - **Light around the frame.**
 - **Claude pet** sits on the band's top border, beside the title, its feet on the line, so the rows below keep their full width; the corner under the last row names it with its level and feeling. While Claude works it leaves for the chat and runs back and forth under the spinner (with the cockpit transcript style; otherwise it paces its yard); it cheers when a turn ends, frets when a tool fails, sweats as the context fills and naps once the cache goes cold. It shows whenever the full frame has room to spare.
+- **Light mode** (off by default, Settings · Effects): half the frames while Claude works. Measured in a 160×50 terminal, it took Claude Code's CPU from about 31% to 23% while working and nearly halved what is written to the terminal. Turn all leaves it as it is.
 
 Under another mod's note (such as You should know), or when there is little room, the band folds to one row so nothing scrolls.
 
 - **Context**: how close the session is to auto-compact (or to the model's window when auto-compact is off), coloured by level (Clear, Cloudy, Showers, Storm, Compact soon).
 - **Cost**: what the session has spent, against your budget when you set one.
-- **Cache clock**: time left before the prompt cache goes cold after Claude's last reply.
+- **Cache clock** ("stays warm"): time left before the prompt cache goes cold after Claude's last reply; once cold it says the next reply is slower.
 - **Session time**: how long the session has been open and how long Claude actually worked.
 - **Model and effort**: the model and effort level of the latest request.
 - **Pull request**: shown once the session pushes or touches a PR: checks passed, failed and pending, failing check names, review state.

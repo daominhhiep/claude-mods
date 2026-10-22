@@ -177,6 +177,7 @@ declare module 'claude-code' {
         ring: boolean
         pet: boolean
         weather: boolean
+        light: boolean
       }
       petLife: PetLife
       burst: { at: number; text: string } | null

@@ -814,7 +814,7 @@ export function headsUp(text: string): string | null {
 
 // ── Effects ──────────────────────────────────────────────────────────
 
-export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather'
+export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather' | 'light'
 export type Effects = Record<EffectId, boolean>
 
 /** Each effect Settings · Effects turns on and off, in the order it lists them. */
@@ -827,6 +827,7 @@ export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
   { id: 'ring', label: 'Light around the frame', hint: 'A light circles the band: quick while Claude works, slow at rest.' },
   { id: 'pet', label: 'Claude pet', hint: 'A little Claude lives in the band: it runs while Claude works, cheers when a turn ends and naps when the cache goes cold.' },
   { id: 'weather', label: 'Theme weather', hint: 'Snow, petals, rain or stars drift above the band in themes that have them. Turn off if the terminal feels slow.' },
+  { id: 'light', label: 'Light mode', hint: 'Half the frames while Claude works: less work for the terminal, a little less smooth.' },
 ]
 
 export const DEFAULT_EFFECTS: Effects = {
@@ -838,6 +839,7 @@ export const DEFAULT_EFFECTS: Effects = {
   ring: true,
   pet: true,
   weather: true,
+  light: false,
 }
 
 /** Saved effects read back, any missing or broken entry at its default. */
