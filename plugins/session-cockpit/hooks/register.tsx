@@ -1468,11 +1468,13 @@ export const register: Register = (on, options) => {
       )
     const head: Cell[] = [...Array.from('╭─ ').map((ch, col) => ({ ch, color: edge(col) })), ...titleCells]
     // The pet's feet stand on the border: where they leave a gap, the line runs on.
-    const yardAt = head.length + 2
+    // Counted in columns: the title's shimmer packs several letters into one cell.
+    const headW = head.reduce((n, c) => n + Array.from(c.ch).length, 0)
+    const yardAt = headW + 2
     const feet: Cell[] =
       petRows === null
         ? []
-        : [{ ch: '─', color: edge(head.length + 1) }].concat(
+        : [{ ch: '─', color: edge(headW + 1) }].concat(
             (petRows[2] ?? []).flatMap(p => Array.from(p.text).map(ch => ({ ch, color: p.color }))).map((c, k) =>
               c.ch === ' ' ? { ch: '─', color: edge(yardAt + k) } : c,
             ),
@@ -1491,7 +1493,7 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
         <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-          <Text>{draw(dashCells(head.length + 1 + feet.length, W, col => col))}</Text>
+          <Text>{draw(dashCells(headW + 1 + feet.length, W, col => col))}</Text>
         </Box>
         <Box flexShrink={0}>
           <Text>

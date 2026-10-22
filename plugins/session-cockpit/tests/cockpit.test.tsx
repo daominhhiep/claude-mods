@@ -929,6 +929,12 @@ test('the pet lives in the band and the Config tab sends it away', async ($, on)
   expect(first).not.toContain('opus')
   expect(first).toContain('▐▛███▜▌')
   expect(first).toMatch(/◆ COCKPIT ─+▘▘─▝▝─/)
+  // Its body stands right over its feet, the title's width counted in columns.
+  const lines = first.split('\n')
+  const border = lines.find(l => l.startsWith('╭─ ◆ COCKPIT'))!
+  const gap = lines.find(l => /^ {10,}$/.test(l))!
+  const body = lines.find(l => l.includes('▝▜█████▛▘'))!
+  expect(gap.length + body.indexOf('▝▜') + 2).toBe(border.indexOf('▘▘'))
   expect(first).toMatch(/· Lv \d+ · Fine ─╯/)
 
   // A failed tool makes it fret.
