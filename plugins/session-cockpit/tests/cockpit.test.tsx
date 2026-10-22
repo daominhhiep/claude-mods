@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, dayKey, feedAndAward, patPet, petFeeling, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1178,4 +1178,44 @@ test('a click on the pet, its button or /pat pets it', async ($, on) => {
 
   const said = (await $.command.run({ command: 'pat', args: '' } as never)) as { text: string }
   expect(said.text).toBe('You pet Clawd. ♥ (11 times so far)')
+})
+
+test('stamina follows the five-hour usage limit and wears the pet down', async ($, on) => {
+  expect(petStamina([])).toBeNull()
+  expect(petStamina([{ kind: 'seven_day', percentUsed: 20 }])).toBeNull()
+  expect(petStamina([{ kind: 'five_hour', percentUsed: 36, resetsAt: '2026-10-22T07:19:00Z' }])).toEqual({
+    percent: 64,
+    refillsAt: Date.parse('2026-10-22T07:19:00Z'),
+  })
+  expect(petStamina([{ kind: 'five_hour', percentUsed: 104 }])).toEqual({ percent: 0, refillsAt: null })
+  const now = new Date(2026, 9, 22, 12).getTime()
+  const calm = { now, todayTurns: 5, work2h: 0, work3h: 0, failures: 0, idleMs: 0 }
+  expect(petFeeling({ ...calm, stamina: 64 })).toBe('fine')
+  expect(petFeeling({ ...calm, stamina: 15 })).toBe('drained')
+  expect(petFeeling({ ...calm, stamina: 0 })).toBe('exhausted')
+  expect(petFeeling({ ...calm, stamina: null })).toBe('fine')
+
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: now,
+      context: { window: 200_000 },
+      rateLimits: [{ kind: 'five_hour', percentUsed: 85, resetsAt: new Date(now + 3_600_000).toISOString() }],
+      cost: { usd: 0 },
+    },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^ 15%$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ · full again at 13:00$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Low on energy$/ })).toBeDefined()
+  await ui.unmount()
+  const said = (await $.command.run({ command: 'pet', args: '' } as never)) as { text: string }
+  expect(said.text).toContain('15% stamina')
 })

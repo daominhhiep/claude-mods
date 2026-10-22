@@ -830,15 +830,15 @@ export function pet(
     // Paces its yard, legs swinging: a step every quarter second in the
     // band's yard, ten a second across a wide one so it gets somewhere.
     // An egg rolls the same way. Tired it drags its feet; worn out it crawls.
-    const slow = feeling === 'exhausted' ? 4 : feeling === 'tired' ? 2 : 1
+    const slow = feeling === 'exhausted' ? 4 : feeling === 'tired' || feeling === 'drained' ? 2 : 1
     const span = room * 2
     const step = beat((w > PET_WIDTH ? 100 : 250) * slow) % span
     x = step <= room ? step : span - step
     pose.apart = beat(250 * slow) % 2 === 1
-    if (feeling === 'tired' || feeling === 'exhausted') eyes = ['▀', '▀']
+    if (feeling === 'tired' || feeling === 'drained' || feeling === 'exhausted') eyes = ['▀', '▀']
     if (feeling === 'stressed') eyes = ['▚', '▞']
   } else if (mood === 'idle') {
-    if (feeling === 'tired' || feeling === 'sleepy') {
+    if (feeling === 'tired' || feeling === 'drained' || feeling === 'sleepy') {
       // Heavy lids, and a yawn every few seconds.
       eyes = ['▀', '▀']
       const yawn = beat(1000) % (feeling === 'sleepy' ? 3 : 5) === 0
@@ -1191,12 +1191,17 @@ function award(life: PetLife, after: PetLife, now: number, byPat: boolean): { li
 // ── Feelings ─────────────────────────────────────────────────────────
 
 /** How the pet feels over the day, as against its mood of the moment. */
-export type PetFeeling = 'fine' | 'tired' | 'exhausted' | 'stressed' | 'sleepy' | 'bored'
+export type PetFeeling = 'fine' | 'tired' | 'exhausted' | 'drained' | 'stressed' | 'sleepy' | 'bored'
 
 export const PET_FEELINGS: Record<PetFeeling, { name: string; color: string; tip: string }> = {
   fine: { name: 'Fine', color: 'success', tip: 'All good.' },
   tired: { name: 'Tired', color: 'warning', tip: 'A short break would help.' },
   exhausted: { name: 'Worn out', color: 'error', tip: 'Time to stop for the day, or at least take a long break.' },
+  drained: {
+    name: 'Low on energy',
+    color: 'warning',
+    tip: 'Most of this session’s usage is spent. Its stamina comes back when the limit resets.',
+  },
   stressed: { name: 'Stressed', color: 'error', tip: 'Several tools failed in a row. Step back for a moment, or give it a pat.' },
   sleepy: { name: 'Sleepy', color: 'suggestion', tip: "It's late. Bed soon?" },
   bored: { name: 'Bored', color: 'subtle', tip: 'Nothing to do for a while. Got a task, or a pat?' },
@@ -1233,14 +1238,36 @@ export function petFeeling(s: {
   idleMs: number
   /** Time since it was last petted. */
   pattedAgo?: number
+  /** Percent of the five-hour usage limit left, when the account has one. */
+  stamina?: number | null
 }): PetFeeling {
   // A pat soothes stress and boredom for a while; only rest cures tiredness.
   const isSoothed = s.pattedAgo !== undefined && s.pattedAgo < PET_SOOTHE_MS
-  if (s.todayTurns >= 60 || s.work3h >= 150 * MINUTE) return 'exhausted'
+  const stamina = s.stamina ?? 100
+  if (s.todayTurns >= 60 || s.work3h >= 150 * MINUTE || stamina <= 0) return 'exhausted'
+  if (stamina <= 20) return 'drained'
   if (s.failures >= 3 && !isSoothed) return 'stressed'
   if (s.todayTurns >= 30 || s.work2h >= 75 * MINUTE) return 'tired'
   const hour = new Date(s.now).getHours()
   if (hour >= 23 || hour < 5) return 'sleepy'
   if (s.idleMs >= 30 * MINUTE && !isSoothed) return 'bored'
   return 'fine'
+}
+
+// ── Stamina ──────────────────────────────────────────────────────────
+
+/**
+ * The pet's stamina: the share of the five-hour usage limit left, and when it
+ * fills again; null off a subscription or before the first reading.
+ */
+export function petStamina(
+  limits: readonly { kind: string; percentUsed: number; resetsAt?: string }[],
+): { percent: number; refillsAt: number | null } | null {
+  const window = limits.find(l => l.kind === 'five_hour')
+  if (window === undefined) return null
+  const at = window.resetsAt === undefined ? NaN : Date.parse(window.resetsAt)
+  return {
+    percent: Math.max(0, Math.min(100, Math.round(100 - window.percentUsed))),
+    refillsAt: Number.isNaN(at) ? null : at,
+  }
 }

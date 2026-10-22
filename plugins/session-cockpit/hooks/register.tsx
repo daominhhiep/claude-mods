@@ -67,6 +67,7 @@ import {
   dayKey,
   feedAndAward,
   patPet,
+  petStamina,
   PET_LOVED_MS,
   petFeeling,
   workIn,
@@ -221,7 +222,17 @@ async function feelingOf($: EngineInterface, life: PetLife, now: number): Promis
     failures: (await read($, calls)).filter(c => c.status === 'error' && c.startedAt >= now - 600_000).length,
     idleMs: Math.max(0, now - lastEnd),
     pattedAgo: life.lastPattedAt === null ? undefined : now - life.lastPattedAt,
+    stamina: await staminaOf($).then(s => s?.percent ?? null),
   })
+}
+
+/** The pet's stamina from the session's usage limit, or null with none. */
+async function staminaOf($: EngineInterface): Promise<ReturnType<typeof petStamina>> {
+  try {
+    return petStamina((await $.session.usage()).rateLimits)
+  } catch {
+    return null
+  }
 }
 
 /** Pets the pet once: hearts for a moment, and any petting achievement it earns. */
@@ -595,8 +606,11 @@ export const register: Register = (on, options) => {
     if (name === '') {
       const life = await savePet($, l => l)
       const st = petStats(life, now)
+      const stamina = await staminaOf($)
       return {
-        text: `${life.name} is a ${st.stageName.toLowerCase()} at level ${st.level}: ${st.hunger}, ${st.streak}-day streak, ${
+        text: `${life.name} is a ${st.stageName.toLowerCase()} at level ${st.level}: ${st.hunger}, ${
+          stamina === null ? '' : `${stamina.percent}% stamina, `
+        }${st.streak}-day streak, ${
           Object.keys(life.achievements).length
         } of ${PET_ACHIEVEMENTS.length} achievements. The Pet tab in /cockpit shows the rest.`,
       }
@@ -813,7 +827,10 @@ export const register: Register = (on, options) => {
         // A heavy feeling is said once a day, when it first sets in.
         const feeling = await feelingOf($, life, at)
         const key = `${dayKey(at)}:${feeling}`
-        if ((feeling === 'tired' || feeling === 'exhausted' || feeling === 'stressed') && !feltToday.has(key)) {
+        if (
+          (feeling === 'tired' || feeling === 'exhausted' || feeling === 'drained' || feeling === 'stressed') &&
+          !feltToday.has(key)
+        ) {
           feltToday.add(key)
           news.push(`${life.name} is ${PET_FEELINGS[feeling].name.toLowerCase()}. ${PET_FEELINGS[feeling].tip}`)
         }
@@ -2293,6 +2310,11 @@ export const register: Register = (on, options) => {
       const st = petStats(life, nowPet)
       const isOn = (await read($, effects)).pet
       const feeling = await feelingOf($, life, nowPet)
+      // Stamina is what is left of the session's five-hour usage limit.
+      const stamina = petStamina(usageHead?.rateLimits ?? [])
+      const staminaFill = stamina === null ? 0 : Math.round(stamina.percent / 10)
+      const staminaColor =
+        stamina === null || stamina.percent > 50 ? 'success' : stamina.percent > 20 ? 'warning' : 'error'
       const hungerLook = {
         full: { label: 'Full', color: 'success' },
         peckish: { label: 'Peckish', color: 'claude' },
@@ -2370,6 +2392,17 @@ export const register: Register = (on, options) => {
               <Text color={paint('error')}>{'●'.repeat(st.bond)}</Text>
               <Text color={paint('inactive')}>{'○'.repeat(5 - st.bond)}</Text>
             </Text>
+            {stamina === null ? null : (
+              <Text wrap="wrap">
+                <Text color={paint('inactive')}>Stamina </Text>
+                <Text color={paint(staminaColor)}>{'▰'.repeat(staminaFill)}</Text>
+                <Text color={paint('inactive')}>{'▱'.repeat(10 - staminaFill)}</Text>
+                <Text color={paint(staminaColor)} bold>{` ${stamina.percent}%`}</Text>
+                {stamina.refillsAt === null || stamina.percent >= 100 ? null : (
+                  <Text color={paint('inactive')}>{` · full again at ${clockTime(stamina.refillsAt).slice(0, 5)}`}</Text>
+                )}
+              </Text>
+            )}
             <Text wrap="wrap">
               <Text color={paint('inactive')}>Feeling </Text>
               <Text color={paint(PET_FEELINGS[feeling].color)} bold>
