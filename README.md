@@ -50,7 +50,7 @@ Tool output stays Claude Code's own. Set `transcriptStyle` to `claude` to leave 
 
 **Pane (`/cockpit`)**
 
-Three cards head every tab: context with its trend, cost with each prompt's share, and working time. Five groups sit on one row (Context, Work, Pins, Pet, Settings), shown as icons with only the open one named when the pane is narrow; Work and Settings have their own tabs below.
+Three cards head every tab: context with its trend, cost with each prompt's share, and working time. Five groups sit on one row (Context, Work, Pins, Pet, Settings), shown as icons with only the open one named when the pane is narrow; Work, Pet and Settings have their own tabs below.
 
 | Group · tab | What it shows |
 | --- | --- |
@@ -60,7 +60,7 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 | Work · Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Work · Diff | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Pins | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
-| Pet | Your pet: stage, level and XP, food, bond, stamina, feeling, age and streak, the last 14 days, skins to wear and achievements |
+| Pet | Your pet: species, stage, level and XP, food, bond, stamina, feeling, age and streak, the last 14 days and its evolution; Skins and Achievements are tabs of their own |
 | Settings · Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
 | Settings · Effects | Turn each effect on or off; kept for every session |
 
@@ -68,6 +68,8 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 
 The pet is kept across sessions and grows with how often you use Claude Code. Every finished turn feeds it.
 
+- **Species**: the egg hatches into one of six, by chance: Common 60% (Clawd, Chick), Uncommon 25% (Cat, Bunny), Rare 12% (Fox), Legendary 3% (Dragon). A pet that hatched before species keeps being a Clawd.
+- **Evolution**: on the day it grows up (7 days of use) it settles on the way your habits shaped it, and wears its mark: Night Owl ☾ (a third of turns 10 pm–5 am), Sprinter » (15 turns a day on average), Sage ∴ (7 days in a row), Cuddly ♡ (30 pats), or All-rounder when no habit stands out. The Pet tab shows how close each one is.
 - **Stages**: an egg hatches after 3 turns, then Baby, Kid (3 days of use), Grown-up (7) and Elder (30).
 - **Level**: each day you use Claude earns 20 XP plus 5 a turn (up to 20 turns a day); a streak of days in a row adds 10 a day.
 - **Food**: full for 4 hours after a turn, then peckish, hungry after a day and starving after three. A hungry pet turns grey and asks for food.

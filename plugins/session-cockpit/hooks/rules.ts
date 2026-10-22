@@ -776,6 +776,123 @@ const PET_SPRITES: Record<PetStage, (p: PetPose) => [string, string, string]> = 
   elder: p => PET_SPRITES.adult(p),
 }
 
+// ── Species ──────────────────────────────────────────────────────────
+
+export type PetRarity = 'common' | 'uncommon' | 'rare' | 'legendary'
+
+export const PET_RARITIES: Record<PetRarity, { name: string; color: string; percent: number }> = {
+  common: { name: 'Common', color: 'subtle', percent: 60 },
+  uncommon: { name: 'Uncommon', color: 'success', percent: 25 },
+  rare: { name: 'Rare', color: 'suggestion', percent: 12 },
+  legendary: { name: 'Legendary', color: 'warning', percent: 3 },
+}
+
+type SpeciesSprites = { baby: (p: PetPose) => [string, string, string]; grown: (p: PetPose) => [string, string, string] }
+
+/** A baby hops a row up; its face and feet are the rest. */
+const hop = (p: PetPose, face: string, feet: string): [string, string, string] =>
+  p.up ? [face, feet, '         '] : ['         ', face, feet]
+
+/** What can hatch from the egg, each with its chance in a thousand. */
+export const PET_SPECIES: { id: string; name: string; rarity: PetRarity; weight: number; sprites: SpeciesSprites | null }[] = [
+  // Clawd keeps the original sprites, by stage.
+  { id: 'clawd', name: 'Clawd', rarity: 'common', weight: 300, sprites: null },
+  {
+    id: 'chick',
+    name: 'Chick',
+    rarity: 'common',
+    weight: 300,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▗█▶█▖  ' : '  ▗▛▶▜▖  ', p.apart ? '  ▘   ▝  ' : '   ▘ ▝   '),
+      grown: p => [
+        p.shut ? ' ▗██▶██▖ ' : ' ▗▛█▶█▜▖ ',
+        p.up ? ' ▚▜███▛▞ ' : '  ▜███▛  ',
+        p.apart ? '  ▘   ▝  ' : '   ▘ ▝   ',
+      ],
+    },
+  },
+  {
+    id: 'cat',
+    name: 'Cat',
+    rarity: 'uncommon',
+    weight: 125,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▙███▟  ' : '  ▙▛█▜▟  ', p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '),
+      grown: p => [
+        p.shut ? ' ▙█████▟ ' : ' ▙▛███▜▟ ',
+        p.up ? ' ▗█████▖▞' : '  █████ ▞',
+        p.apart ? ' ▘▘   ▝▝ ' : '  ▘▘ ▝▝  ',
+      ],
+    },
+  },
+  {
+    id: 'bunny',
+    name: 'Bunny',
+    rarity: 'uncommon',
+    weight: 125,
+    sprites: {
+      baby: p => [
+        p.up ? '  ▚   ▞  ' : '   ▌ ▐   ',
+        p.shut ? '  ▐███▌  ' : '  ▐▛█▜▌  ',
+        p.apart ? ' ▀▀   ▀▀ ' : '  ▀▀ ▀▀  ',
+      ],
+      grown: p => [
+        p.up ? '  ▚▌ ▐▞  ' : '  ▐▌ ▐▌  ',
+        p.shut ? ' ▐█████▌ ' : ' ▐▛███▜▌ ',
+        p.apart ? '▀▀▀   ▀▀▀' : ' ▀▀▀ ▀▀▀ ',
+      ],
+    },
+  },
+  {
+    id: 'fox',
+    name: 'Fox',
+    rarity: 'rare',
+    weight: 120,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▙█▄█▟  ' : '  ▙▛▄▜▟  ', p.apart ? ' ▝▘   ▝▘▞' : '  ▝▘ ▝▘▞ '),
+      grown: p => [
+        p.shut ? ' ▙█▄▄▄█▟ ' : ' ▙▛▄▄▄▜▟ ',
+        p.up ? ' ▗█████▟█' : '  █████▟█',
+        p.apart ? ' ▘▘   ▝▝ ' : '  ▘▘ ▝▝  ',
+      ],
+    },
+  },
+  {
+    id: 'dragon',
+    name: 'Dragon',
+    rarity: 'legendary',
+    weight: 30,
+    sprites: {
+      baby: p => hop(p, p.shut ? '  ▚███▞  ' : '  ▚▛█▜▞  ', p.apart ? ' ▝▘   ▝▘ ' : '  ▝▘ ▝▘  '),
+      grown: p => [
+        p.shut ? ' ▚▐███▌▞ ' : ' ▚▐▛█▜▌▞ ',
+        p.up ? '▙▜█████▛▟' : '▟▜█████▛▙',
+        p.apart ? ' ▘▘   ▝▝▞' : '  ▘▘ ▝▝ ▞',
+      ],
+    },
+  },
+]
+
+/** The species that hatches at `now`: a roll seeded by the moment, weighted by rarity. */
+export function hatchSpecies(now: number): string {
+  let h = Math.floor(now) % 2_147_483_647 | 0
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
+  h ^= h >>> 16
+  let roll = (h >>> 0) % 1000
+  for (const s of PET_SPECIES) {
+    if (roll < s.weight) return s.id
+    roll -= s.weight
+  }
+  return PET_SPECIES[0]!.id
+}
+
+function spriteOf(stage: PetStage, species: string | null): (p: PetPose) => [string, string, string] {
+  const sprites = PET_SPECIES.find(s => s.id === species)?.sprites ?? null
+  if (stage === 'egg' || sprites === null) return PET_SPRITES[stage]
+  return stage === 'baby' ? sprites.baby : sprites.grown
+}
+
 /** What a pet should feel, the strongest reason first. */
 export function petMood(s: {
   now: number
@@ -807,6 +924,7 @@ export function pet(
   stage: PetStage = 'adult',
   skin: string = 'classic',
   feeling: PetFeeling = 'fine',
+  look: { species?: string | null; path?: string | null } = {},
 ): { text: string; color: string }[][] {
   let mood = shownMood
   const w = Math.max(PET_WIDTH, Math.floor(width))
@@ -888,10 +1006,20 @@ export function pet(
     if (beat(2000) % 2 === 0) put(0, x + PET_BODY, '?', 'warning')
   }
 
-  PET_SPRITES[stage](pose)
-    // The head row is the one with its face: ▐ … ▌.
-    .map(line => (eyes === null || pose.shut || !line.includes('▐') ? line : line.replace('▛', eyes[0]).replace('▜', eyes[1])))
+  spriteOf(stage, look.species ?? null)(pose)
+    // The face row has its eyes as ▛ then ▜; the body row has them the other way.
+    .map(line =>
+      eyes === null || pose.shut || !(line.indexOf('▛') !== -1 && line.indexOf('▜') > line.indexOf('▛'))
+        ? line
+        : line.replace('▛', eyes[0]).replace('▜', eyes[1]),
+    )
     .forEach((line, row) => Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)))
+  // A grown pet wears the mark of the way it grew up, where nothing else is.
+  const way = PET_PATHS.find(p => p.id === look.path)
+  if (way !== undefined && way.mark !== '' && (stage === 'adult' || stage === 'elder')) {
+    const at = grid[way.row]?.[x - 1]
+    if (at !== undefined && at.ch === ' ') put(way.row, x - 1, way.mark, way.color)
+  }
   if (isSweating && mood !== 'sleep' && stage !== 'egg') {
     // A drop drips beside its head when the context fills up.
     put(0, x, beat(500) % 2 === 0 ? "'" : ',', 'suggestion')
@@ -974,6 +1102,9 @@ export function newPetLife(now: number): PetLife {
     pats: 0,
     lastPattedAt: null,
     patDays: {},
+    species: null,
+    path: null,
+    hours: Array.from({ length: 24 }, () => 0),
   }
 }
 
@@ -1008,6 +1139,18 @@ export function petLifeFrom(saved: unknown, now: number): PetLife {
     pats: typeof v.pats === 'number' && v.pats >= 0 ? Math.floor(v.pats) : 0,
     lastPattedAt: typeof v.lastPattedAt === 'number' ? v.lastPattedAt : null,
     patDays: dayCounts(v.patDays),
+    // A pet that hatched before there were species stays a Clawd.
+    species:
+      typeof v.species === 'string' && PET_SPECIES.some(s => s.id === v.species)
+        ? v.species
+        : typeof v.turns === 'number' && v.turns >= PET_HATCH_TURNS
+          ? 'clawd'
+          : null,
+    path: typeof v.path === 'string' && PET_PATHS.some(p => p.id === v.path) ? v.path : null,
+    hours: Array.from({ length: 24 }, (_, i) => {
+      const n = Array.isArray(v.hours) ? v.hours[i] : 0
+      return typeof n === 'number' && n > 0 ? Math.floor(n) : 0
+    }),
   }
 }
 
@@ -1017,7 +1160,9 @@ export function feedPet(life: PetLife, now: number): PetLife {
   const days = { ...life.days, [today]: (life.days[today] ?? 0) + 1 }
   const keys = Object.keys(days).sort()
   for (const k of keys.slice(0, Math.max(0, keys.length - MAX_DAYS_KEPT))) delete days[k]
-  return { ...life, days, lastFedAt: now, turns: life.turns + 1 }
+  const hours = life.hours.slice()
+  hours[hourOf(now)] = (hours[hourOf(now)] ?? 0) + 1
+  return { ...life, days, hours, lastFedAt: now, turns: life.turns + 1 }
 }
 
 /** XP needed to reach `level`. */
@@ -1161,7 +1306,12 @@ export function hasSkin(life: PetLife, id: string): boolean {
  * recorded, and those achievements, in list order.
  */
 export function feedAndAward(life: PetLife, now: number): { life: PetLife; earned: PetAchievement[] } {
-  return award(life, feedPet(life, now), now, false)
+  let fed = feedPet(life, now)
+  const stage = petStats(fed, now).stage
+  // The egg hatches into its species; grown up, it settles on the way it grew.
+  if (stage !== 'egg' && fed.species === null) fed = { ...fed, species: hatchSpecies(now) }
+  if ((stage === 'adult' || stage === 'elder') && fed.path === null) fed = { ...fed, path: choosePath(fed, now) }
+  return award(life, fed, now, false)
 }
 
 /** The pet after a pat at `now`, with the petting achievements it newly earned. */
@@ -1270,4 +1420,77 @@ export function petStamina(
     percent: Math.max(0, Math.min(100, Math.round(100 - window.percentUsed))),
     refillsAt: Number.isNaN(at) ? null : at,
   }
+}
+
+// ── Evolution ────────────────────────────────────────────────────────
+
+/** How each way of growing up is earned: a habit, scored against its bar (1 meets it). */
+export const PET_PATHS: {
+  id: string
+  name: string
+  /** The mark it wears beside it, on `row`. */
+  mark: string
+  row: number
+  color: string
+  hint: string
+  score: (life: PetLife, now: number) => number
+}[] = [
+  {
+    id: 'owl',
+    name: 'Night Owl',
+    mark: '☾',
+    row: 0,
+    color: 'suggestion',
+    hint: 'A third of your turns between 10 pm and 5 am',
+    score: life => {
+      const all = life.hours.reduce((a, b) => a + b, 0)
+      const night = [22, 23, 0, 1, 2, 3, 4].reduce((a, h) => a + (life.hours[h] ?? 0), 0)
+      return all === 0 ? 0 : night / all / 0.3
+    },
+  },
+  {
+    id: 'sprinter',
+    name: 'Sprinter',
+    mark: '»',
+    row: 1,
+    color: 'warning',
+    hint: '15 turns a day on average',
+    score: life => {
+      const active = Object.values(life.days).filter(n => n > 0)
+      return active.length === 0 ? 0 : active.reduce((a, b) => a + b, 0) / active.length / 15
+    },
+  },
+  {
+    id: 'sage',
+    name: 'Sage',
+    mark: '∴',
+    row: 0,
+    color: 'permission',
+    hint: '7 days in a row',
+    score: (life, now) => petStats(life, now).streak / 7,
+  },
+  {
+    id: 'cuddly',
+    name: 'Cuddly',
+    mark: '♡',
+    row: 0,
+    color: 'error',
+    hint: '30 pats',
+    score: life => life.pats / 30,
+  },
+  { id: 'balanced', name: 'All-rounder', mark: '', row: 0, color: 'text', hint: 'No habit stands out', score: () => 0 },
+]
+
+/** The way a pet grows up: the habit that most clears its bar, or All-rounder. */
+export function choosePath(life: PetLife, now: number): string {
+  let best = 'balanced'
+  let top = 1
+  for (const p of PET_PATHS) {
+    const s = p.score(life, now)
+    if (s >= top) {
+      best = p.id
+      top = s
+    }
+  }
+  return best
 }

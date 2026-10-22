@@ -64,6 +64,9 @@ import {
   PET_HATCH_TURNS,
   PET_FEELINGS,
   PET_SKINS,
+  PET_SPECIES,
+  PET_RARITIES,
+  PET_PATHS,
   dayKey,
   feedAndAward,
   patPet,
@@ -160,7 +163,16 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     ],
   },
   { id: 'sessions', label: 'Pins', icon: '★', tabs: [{ id: 'sessions', label: 'Pins' }] },
-  { id: 'pet', label: 'Pet', icon: '♥', tabs: [{ id: 'pet', label: 'Pet' }] },
+  {
+    id: 'pet',
+    label: 'Pet',
+    icon: '♥',
+    tabs: [
+      { id: 'pet', label: 'Pet' },
+      { id: 'skins', label: 'Skins' },
+      { id: 'trophies', label: 'Achievements' },
+    ],
+  },
   {
     id: 'settings',
     label: 'Settings',
@@ -276,6 +288,11 @@ async function isBusy($: EngineInterface, cacheMs: number): Promise<boolean> {
   if (warmAt === null) return false
   const left = warmAt + cacheMs - (await $.clock.now())
   return left > 0 && left <= 60_000
+}
+
+/** A word with its article: a Sage, an All-rounder. */
+function an(word: string): string {
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`
 }
 
 function clockTime(ms: number): string {
@@ -608,7 +625,9 @@ export const register: Register = (on, options) => {
       const st = petStats(life, now)
       const stamina = await staminaOf($)
       return {
-        text: `${life.name} is a ${st.stageName.toLowerCase()} at level ${st.level}: ${st.hunger}, ${
+        text: `${life.name} is a ${st.stageName.toLowerCase()}${
+          life.species === null ? '' : ` ${PET_SPECIES.find(k => k.id === life.species)?.name ?? ''}`
+        } at level ${st.level}: ${st.hunger}, ${
           stamina === null ? '' : `${stamina.percent}% stamina, `
         }${st.streak}-day streak, ${
           Object.keys(life.achievements).length
@@ -817,9 +836,16 @@ export const register: Register = (on, options) => {
         const was = petStats(before, at)
         const is = petStats(life, at)
         const news: string[] = []
+        const kind = PET_SPECIES.find(k => k.id === life.species)
+        const way = PET_PATHS.find(w => w.id === life.path)
         if (is.stage !== was.stage) {
-          news.push(was.stage === 'egg' ? `${life.name} hatched!` : `${life.name} grew into a ${is.stageName.toLowerCase()}!`)
+          news.push(
+            was.stage === 'egg'
+              ? `${life.name} hatched${kind === undefined ? '' : `: ${an(PET_RARITIES[kind.rarity].name.toLowerCase())} ${kind.name}`}!`
+              : `${life.name} grew into a ${is.stageName.toLowerCase()}!`,
+          )
         } else if (is.level > was.level) news.push(`${life.name} reached level ${is.level}.`)
+        if (way !== undefined && (before as PetLife).path !== life.path) news.push(`It grew up ${an(way.name)}.`)
         for (const a of earned) {
           const skin = PET_SKINS.find(k => k.unlock === a.id)
           news.push(`Achievement: ${a.name}${skin === undefined ? '' : ` (new skin: ${skin.name})`}`)
@@ -1241,6 +1267,7 @@ export const register: Register = (on, options) => {
           lifeStats.stage,
           life.skin,
           feeling,
+          life,
         )
       : null
 
@@ -1522,7 +1549,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {line}
-        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now)).map((row, r) => (
+        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now), life).map((row, r) => (
           <Box key={`pet-${r}`} height={1} overflow="hidden">
             <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
           </Box>
@@ -2304,7 +2331,7 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
-    } else if (current === 'pet') {
+    } else if (current === 'pet' || current === 'skins' || current === 'trophies') {
       const life = await read($, petLife)
       const nowPet = await $.clock.now()
       const st = petStats(life, nowPet)
@@ -2337,6 +2364,7 @@ export const register: Register = (on, options) => {
         st.stage,
         life.skin,
         feeling,
+        life,
       )
       const barWidth = Math.max(8, Math.min(20, width - 24))
       const share = Math.max(0, Math.min(1, (st.xp - st.levelFrom) / Math.max(1, st.levelTo - st.levelFrom)))
@@ -2358,9 +2386,131 @@ export const register: Register = (on, options) => {
             : `${st.next.name} in ${st.next.days} more ${st.next.days === 1 ? 'day' : 'days'} of use`
       const earned = PET_ACHIEVEMENTS.filter(a => life.achievements[a.id] !== undefined).length
       const skinsOwned = PET_SKINS.filter(k => hasSkin(life, k.id)).length
-      body = (
+      const species = PET_SPECIES.find(k => k.id === life.species)
+      const way = PET_PATHS.find(w => w.id === life.path)
+      const evolution = (
+        <Box flexDirection="column">
+          {heading('Evolution', way === undefined ? 'when grown up' : way.name)}
+          {species === undefined ? (
+            <>
+              <Text color={paint('inactive')} wrap="wrap">
+                What hatches is left to chance:
+              </Text>
+              {(Object.keys(PET_RARITIES) as (keyof typeof PET_RARITIES)[]).map(r => (
+                <Text key={`odds-${r}`} wrap="truncate-end">
+                  <Text color={paint(PET_RARITIES[r].color)} bold>{`${PET_RARITIES[r].percent}%`.padEnd(5)}</Text>
+                  <Text>{PET_RARITIES[r].name.padEnd(10)}</Text>
+                  <Text color={paint('inactive')}>
+                    {PET_SPECIES.filter(k => k.rarity === r)
+                      .map(k => k.name)
+                      .join(', ')}
+                  </Text>
+                </Text>
+              ))}
+            </>
+          ) : way !== undefined ? (
+            <Text wrap="wrap">
+              <Text color={paint(way.color)}>{way.mark === '' ? '' : `${way.mark} `}</Text>
+              <Text bold>{`${life.name} grew up ${an(way.name)}`}</Text>
+              <Text color={paint('inactive')}>{` · ${way.hint}`}</Text>
+            </Text>
+          ) : (
+            <>
+              <Text color={paint('inactive')} wrap="wrap">
+                On the day it grows up, its strongest habit decides what it becomes:
+              </Text>
+              {PET_PATHS.filter(w => w.id !== 'balanced').map(w => {
+                const score = Math.max(0, Math.min(1, w.score(life, nowPet)))
+                const n = Math.round(score * 8)
+                return (
+                  <Text key={`way-${w.id}`} wrap="truncate-end">
+                    <Text color={paint(w.color)}>{`${w.mark} `}</Text>
+                    <Text>{w.name.padEnd(10)}</Text>
+                    <Text color={paint(w.color)}>{'▰'.repeat(n)}</Text>
+                    <Text color={paint('inactive')}>{'▱'.repeat(8 - n)}</Text>
+                    <Text color={paint('inactive')}>{`  ${w.hint}`}</Text>
+                  </Text>
+                )
+              })}
+              <Text color={paint('inactive')} wrap="wrap">
+                No bar full by then: an All-rounder.
+              </Text>
+            </>
+          )}
+        </Box>
+      )
+      const skinsView = (
         <Box flexDirection="column" gap={1}>
-          {heading(life.name, `${st.stageName} · level ${st.level}`)}
+          {heading('Skins', `${skinsOwned} of ${PET_SKINS.length}`)}
+          <Box flexDirection="column">
+            {sprite.map((row, r) => (
+              <Text key={`skin-look-${r}`}>
+                {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
+              </Text>
+            ))}
+          </Box>
+          <Box flexDirection="column">
+            {PET_SKINS.map(k => {
+              const owned = hasSkin(life, k.id)
+              const worn = life.skin === k.id
+              const need = PET_ACHIEVEMENTS.find(a => a.id === k.unlock)
+              return (
+                <Button
+                  key={`skin-${k.id}`}
+                  plain
+                  onPress={async () => {
+                    if (!owned) {
+                      $.ui.toast(`${k.name} unlocks with the achievement ${need?.name ?? ''}: ${need?.hint ?? ''}.`)
+                      return
+                    }
+                    await savePet($, l => ({ ...l, skin: k.id }))
+                  }}
+                >
+                  <Text color={paint(worn ? 'claude' : 'subtle')} bold={worn}>
+                    {worn ? '◉ ' : '○ '}
+                  </Text>
+                  <Text color={paint(owned ? k.color : 'inactive')}>{owned ? '███' : '░░░'}</Text>
+                  <Text bold={worn} color={owned ? undefined : paint('inactive')}>{`  ${k.name}`}</Text>
+                  {owned || need === undefined ? null : (
+                    <Text color={paint('inactive')}>{`  · ${need.name}`}</Text>
+                  )}
+                </Button>
+              )
+            })}
+          </Box>
+          <Text color={paint('inactive')} wrap="wrap">
+            Each locked skin comes with an achievement; press one to see which.
+          </Text>
+        </Box>
+      )
+      const trophiesView = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Achievements', `${earned} of ${PET_ACHIEVEMENTS.length}`)}
+          <Box flexDirection="column">
+            {PET_ACHIEVEMENTS.map(a => {
+              const got = life.achievements[a.id] !== undefined
+              return (
+                <Text key={`ach-${a.id}`} wrap="truncate-end">
+                  <Text color={paint(got ? 'success' : 'inactive')}>{got ? '✓ ' : '○ '}</Text>
+                  <Text bold={got} color={got ? undefined : paint('subtle')}>{a.name}</Text>
+                  <Text color={paint('inactive')}>{`  ${a.hint}`}</Text>
+                  {got ? (
+                    <Text color={paint('subtle')}>{` · ${dayKey(life.achievements[a.id]!)}`}</Text>
+                  ) : null}
+                </Text>
+              )
+            })}
+          </Box>
+        </Box>
+      )
+      const petView = (
+        <Box flexDirection="column" gap={1}>
+          {heading(
+            life.name,
+            `${species === undefined ? '' : `${species.name} · `}${st.stageName}${
+              way === undefined || way.id === 'balanced' ? '' : ` ${way.name}`
+            } · level ${st.level}`,
+          )}
           <Box flexDirection="column">
             {sprite.map((row, r) => (
               <Button key={`pet-big-${r}`} plain onPress={() => void patOnce($)}>
@@ -2428,49 +2578,7 @@ export const register: Register = (on, options) => {
               })}
             </Text>
           </Box>
-          <Box flexDirection="column">
-            {heading('Skins', `${skinsOwned} of ${PET_SKINS.length}`)}
-            {PET_SKINS.map(k => {
-              const owned = hasSkin(life, k.id)
-              const worn = life.skin === k.id
-              const need = PET_ACHIEVEMENTS.find(a => a.id === k.unlock)
-              return (
-                <Button
-                  key={`skin-${k.id}`}
-                  plain
-                  onPress={async () => {
-                    if (!owned) {
-                      $.ui.toast(`${k.name} unlocks with the achievement ${need?.name ?? ''}: ${need?.hint ?? ''}.`)
-                      return
-                    }
-                    await savePet($, l => ({ ...l, skin: k.id }))
-                  }}
-                >
-                  <Text color={paint(worn ? 'claude' : 'subtle')} bold={worn}>
-                    {worn ? '◉ ' : '○ '}
-                  </Text>
-                  <Text color={paint(owned ? k.color : 'inactive')}>{owned ? '███' : '░░░'}</Text>
-                  <Text bold={worn} color={owned ? undefined : paint('inactive')}>{`  ${k.name}`}</Text>
-                  {owned || need === undefined ? null : (
-                    <Text color={paint('inactive')}>{`  · ${need.name}`}</Text>
-                  )}
-                </Button>
-              )
-            })}
-          </Box>
-          <Box flexDirection="column">
-            {heading('Achievements', `${earned} of ${PET_ACHIEVEMENTS.length}`)}
-            {PET_ACHIEVEMENTS.map(a => {
-              const got = life.achievements[a.id] !== undefined
-              return (
-                <Text key={`ach-${a.id}`} wrap="truncate-end">
-                  <Text color={paint(got ? 'success' : 'inactive')}>{got ? '✓ ' : '○ '}</Text>
-                  <Text bold={got} color={got ? undefined : paint('subtle')}>{a.name}</Text>
-                  <Text color={paint('inactive')}>{`  ${a.hint}`}</Text>
-                </Text>
-              )
-            })}
-          </Box>
+          {evolution}
           <Text color={paint('inactive')} wrap="wrap">
             {isOn
               ? 'Every turn feeds it. Each day you use Claude helps it grow, and days in a row earn extra XP. Name it with /pet and a name.'
@@ -2478,6 +2586,7 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
       )
+      body = current === 'skins' ? skinsView : current === 'trophies' ? trophiesView : petView
     } else if (current === 'config') {
       const fx = await read($, effects)
       const save = async (next: typeof fx) => {
