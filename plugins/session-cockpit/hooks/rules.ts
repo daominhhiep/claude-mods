@@ -1457,6 +1457,9 @@ export function newPetLife(now: number): PetLife {
     hours: Array.from({ length: 24 }, () => 0),
     eggTurns: 0,
     eggAt: null,
+    runs: 0,
+    runBest: 0,
+    lastRunAt: null,
   }
 }
 
@@ -1512,6 +1515,9 @@ export function petLifeFrom(saved: unknown, now: number): PetLife {
           ? Math.floor(v.turns)
           : 0,
     eggAt: typeof v.eggAt === 'number' ? v.eggAt : null,
+    runs: typeof v.runs === 'number' && v.runs >= 0 ? Math.floor(v.runs) : 0,
+    runBest: typeof v.runBest === 'number' && v.runBest >= 0 ? Math.floor(v.runBest) : 0,
+    lastRunAt: typeof v.lastRunAt === 'number' ? v.lastRunAt : null,
   }
 }
 
@@ -1600,6 +1606,8 @@ export type PetAchievement = {
   hint: string
   /** Earned by petting rather than by a turn. */
   byPat?: true
+  /** Earned by a run of Pet Run rather than by a turn. */
+  byRun?: true
   /** Whether a turn (or a pat) at `now` that took the pet from `before` to `after` earns it. */
   earned: (s: { before: PetLife; after: PetLife; stats: PetStats; now: number }) => boolean
 }
@@ -1642,6 +1650,8 @@ export const PET_ACHIEVEMENTS: PetAchievement[] = [
   },
   { id: 'pats-10', name: 'Good friend', hint: 'Pet it 10 times', byPat: true, earned: s => s.after.pats >= 10 },
   { id: 'pats-100', name: 'Best friends', hint: 'Pet it 100 times', byPat: true, earned: s => s.after.pats >= 100 },
+  { id: 'run-200', name: 'Hurdler', hint: 'Score 200 in Pet Run', byRun: true, earned: s => s.after.runBest >= 200 },
+  { id: 'run-1000', name: 'Marathon', hint: 'Score 1,000 in Pet Run', byRun: true, earned: s => s.after.runBest >= 1000 },
 ]
 
 /** Each skin: the theme color the pet is painted in, and the achievement that unlocks it. */
@@ -1712,7 +1722,7 @@ export function feedAndAward(life: PetLife, now: number): { life: PetLife; earne
   // The egg hatches into its species; grown up, it settles on the way it grew.
   if (stage !== 'egg' && fed.species === null) fed = { ...fed, species: hatchSpecies(now) }
   if ((stage === 'adult' || stage === 'elder') && fed.path === null) fed = { ...fed, path: choosePath(fed, now) }
-  return award(life, fed, now, false)
+  return award(life, fed, now, 'turn')
 }
 
 /**
@@ -1739,14 +1749,27 @@ export function patPet(life: PetLife, now: number): { life: PetLife; earned: Pet
   const patDays = { ...life.patDays, [today]: (life.patDays[today] ?? 0) + 1 }
   const keys = Object.keys(patDays).sort()
   for (const k of keys.slice(0, Math.max(0, keys.length - 30))) delete patDays[k]
-  return award(life, { ...life, pats: life.pats + 1, lastPattedAt: now, patDays }, now, true)
+  return award(life, { ...life, pats: life.pats + 1, lastPattedAt: now, patDays }, now, 'pat')
 }
 
-function award(life: PetLife, after: PetLife, now: number, byPat: boolean): { life: PetLife; earned: PetAchievement[] } {
+/** The pet after a run of Pet Run that scored `score`: counted, kept if best, with what it earned. */
+export function recordRun(life: PetLife, score: number, now: number): { life: PetLife; earned: PetAchievement[]; isBest: boolean } {
+  const points = Math.max(0, Math.floor(score))
+  const isBest = points > life.runBest
+  const after = { ...life, runs: life.runs + 1, runBest: Math.max(life.runBest, points), lastRunAt: now }
+  return { ...award(life, after, now, 'run'), isBest }
+}
+
+function award(
+  life: PetLife,
+  after: PetLife,
+  now: number,
+  by: 'turn' | 'pat' | 'run',
+): { life: PetLife; earned: PetAchievement[] } {
   const stats = petStats(after, now)
   const earned = PET_ACHIEVEMENTS.filter(
     a =>
-      (a.byPat === true) === byPat &&
+      (a.byPat === true ? 'pat' : a.byRun === true ? 'run' : 'turn') === by &&
       after.achievements[a.id] === undefined &&
       a.earned({ before: life, after, stats, now }),
   )

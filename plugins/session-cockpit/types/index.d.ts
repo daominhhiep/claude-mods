@@ -1,4 +1,4 @@
-export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'stats' | 'evolution' | 'skins' | 'trophies'
+export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'stats' | 'evolution' | 'skins' | 'trophies' | 'play'
 
 export type PetLifeStage = 'egg' | 'baby' | 'kid' | 'adult' | 'elder'
 
@@ -31,6 +31,10 @@ export type PetLife = {
   eggTurns: number
   /** When a new egg last replaced the pet, or null if never. */
   eggAt: number | null
+  /** Runs of Pet Run played, the best score, and when it was last played. */
+  runs: number
+  runBest: number
+  lastRunAt: number | null
 }
 
 export type PinnedSession = {

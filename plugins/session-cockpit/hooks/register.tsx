@@ -88,6 +88,7 @@ import {
   hasSkin,
   hasAccessory,
   petLifeFrom,
+  recordRun,
   petStats,
   newPetLife,
   waveColor,
@@ -187,6 +188,7 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     icon: '♥',
     tabs: [
       { id: 'pet', label: 'Pet' },
+      { id: 'play', label: 'Play' },
       { id: 'stats', label: 'Stats' },
       { id: 'evolution', label: 'Evolution' },
       { id: 'skins', label: 'Skins' },
@@ -718,6 +720,18 @@ export const register: Register = (on, options) => {
   on('ui.message', async ($, e, next) => {
     // A click on the pet, from its drawing in the band or the Pet tab.
     if (e.element.startsWith('pet-touch') && (e.data as { pat?: unknown } | null)?.pat === true) await patOnce($)
+    // A run of Pet Run ended: count it, keep the best, award what it earned.
+    const score = (e.data as { run?: unknown } | null)?.run
+    if (e.element.startsWith('pet-run') && typeof score === 'number' && Number.isFinite(score)) {
+      const now = await $.clock.now()
+      let said: string[] = []
+      await savePet($, l => {
+        const r = recordRun(l, score, now)
+        said = [...(r.isBest && l.runs > 0 ? [`New best in Pet Run: ${r.life.runBest}`] : []), ...r.earned.map(a => `Achievement: ${a.name}`)]
+        return r.life
+      })
+      if (said.length > 0) $.ui.toast(said.join(' · '))
+    }
     return next(e)
   })
 
@@ -2532,6 +2546,7 @@ export const register: Register = (on, options) => {
       }
     } else if (
       current === 'pet' ||
+      current === 'play' ||
       current === 'stats' ||
       current === 'evolution' ||
       current === 'skins' ||
@@ -2978,8 +2993,54 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
       )
+      // Pet Run: its running steps, each cut to the pet itself, so it stays put.
+      const runFrames = [0, 125, 250, 375]
+        .map(t => {
+          const rows = pet('work', t, false, PET_WIDTH, st.stage, life.skin, 'fine', life).map(row =>
+            row.flatMap(r => [...r.text].map(ch => ({ ch, color: r.color === '' ? '' : paint(r.color) }))),
+          )
+          const inked = rows.flatMap(row => row.map((c, i) => (c.ch.trim() === '' ? -1 : i))).filter(i => i >= 0)
+          const lo = Math.min(...inked)
+          const hi = Math.max(...inked)
+          return rows.map(row => row.slice(lo, hi + 1))
+        })
+        .filter((f, i, all) => all.findIndex(g => JSON.stringify(g) === JSON.stringify(f)) === i)
+      const playView = (
+        <Box flexDirection="column" gap={1}>
+          {heading('Pet Run', life.runs === 0 ? 'not played yet' : `best ${life.runBest} · ${life.runs} ${life.runs === 1 ? 'run' : 'runs'}`)}
+          {Client === undefined ? (
+            <Text color={paint('inactive')} wrap="wrap">
+              Pet Run is played in the terminal.
+            </Text>
+          ) : (
+            <Client
+              key="pet-run"
+              module="./pet-run.tsx"
+              width="100%"
+              props={{
+                frames: runFrames,
+                best: life.runBest,
+                name: life.name,
+                colors: {
+                  ground: paint('inactive'),
+                  cactus: paint('success'),
+                  rock: paint('subtle'),
+                  text: paint('text'),
+                  dim: paint('inactive'),
+                  accent: paint('claude'),
+                },
+              }}
+            />
+          )}
+          <Text color={paint('inactive')} wrap="wrap">
+            Click the game, then jump with Space or ↑. It speeds up as you go. Esc gives the keys back to the prompt.
+          </Text>
+        </Box>
+      )
       body =
-        current === 'stats'
+        current === 'play'
+          ? playView
+          : current === 'stats'
           ? statsView
           : current === 'skins'
           ? skinsView

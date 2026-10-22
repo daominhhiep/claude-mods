@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
+import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1143,7 +1144,7 @@ test('the Pet tab shows the pet, its skins and achievements; /pet names it', asy
   // Achievements and skins have tabs of their own.
   await ui.press({ key: 'tab-trophies' })
   // Hatched, and perhaps an hour-of-day one, as the clock falls in this time zone.
-  expect(await ui.find({ type: 'Text', text: /^[12] of 15$/ }), 'achievements').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^[12] of 17$/ }), 'achievements').toBeDefined()
   await ui.press({ key: 'tab-skins' })
   // A locked skin says how to earn it and is not worn.
   await ui.press({ key: 'skin-gold' })
@@ -1282,6 +1283,64 @@ test('a click on the pet, its button or /pat pets it', async ($, on) => {
 
   const said = (await $.command.run({ command: 'pat', args: '' } as never)) as { text: string }
   expect(said.text).toBe('You pet Clawd. ♥ (11 times so far)')
+})
+
+test('Pet Run: the pet jumps what comes at it, and the best run is kept', async ($, on) => {
+  // A run starts on the first jump; standing still, the first cactus ends it.
+  const hit = { left: 1, width: 7, height: 3 }
+  let s = runJump(newRun(1))
+  expect(s.phase).toBe('run')
+  while (s.y > 0) s = runStep(s, 60, hit)
+  for (let i = 0; i < 400 && s.phase === 'run'; i++) s = runStep(s, 60, hit)
+  expect(s.phase).toBe('over')
+  expect(runJump(s)).toBe(s)
+  // A jump in time clears it: jump when it is three columns from the pet.
+  let t = runJump(newRun(1))
+  for (let i = 0; i < 20 * 60 && t.phase === 'run'; i++) {
+    if (t.obstacles.some(o => o.x - (3 + hit.left + hit.width) < (3 * t.speed) / 14 && o.x > 0)) t = runJump(t)
+    t = runStep(t, 60, hit)
+  }
+  expect(t.phase).toBe('run')
+  expect(runScore(t)).toBeGreaterThan(500)
+  const life = newPetLife(0)
+  const first = recordRun(life, 250, 1)
+  expect(first.life).toMatchObject({ runs: 1, runBest: 250, lastRunAt: 1 })
+  expect(first.earned.map(a => a.name)).toEqual(['Hurdler'])
+  expect(recordRun(first.life, 90, 2).isBest).toBe(false)
+  expect(recordRun(first.life, 90, 2).life.runBest).toBe(250)
+
+  const state = { now: new Date(2026, 9, 22, 12).getTime() }
+  mock.store(on, { petLife: { ...newPetLife(state.now), turns: 30, species: 'clawd' } })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: state.now }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('session.usage', () => ({
+    value: { startedAt: state.now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  await ui.press({ key: 'tab-play' })
+  expect(await ui.find({ type: 'Client', key: 'pet-run' })).toBeDefined()
+  await ui.resize({ columns: 60, rows: 11, in: 'pet-run' })
+  expect(JSON.stringify(await ui.drawn({ in: 'pet-run' }))).toContain('press Space or ↑ to jump')
+  // Space starts a run; left alone, the pet runs into the first cactus.
+  await ui.key({ key: ' ', in: 'pet-run' })
+  await ui.advance(8_000)
+  expect(JSON.stringify(await ui.drawn({ in: 'pet-run' }))).toMatch(/New best! \d+ points/)
+  expect(await ui.find({ type: 'Text', text: /best \d+ · 1 run$/ })).toBeDefined()
+  // A long run earns the first Pet Run achievement.
+  await ui.post({ run: 250 }, { in: 'pet-run' })
+  expect(toasts).toContain('New best in Pet Run: 250 · Achievement: Hurdler')
+  expect(await ui.find({ type: 'Text', text: /best 250 · 2 runs$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 test('stamina follows the five-hour usage limit and wears the pet down', async ($, on) => {
