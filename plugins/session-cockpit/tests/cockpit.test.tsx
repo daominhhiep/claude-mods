@@ -1043,6 +1043,11 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(rows('egg').join('')).toContain('▟███▙')
   // Its shell is speckled with pale spots.
   expect(pet('idle', 600, false, PET_WIDTH, 'egg').flat().filter(x => x.color === 'text').length).toBe(2)
+  // Rolling, it moves half a cell a step, so no step jumps a whole cell.
+  const rolled = (t: number) => pet('work', t, false, 40, 'egg').map(r => r.map(x => x.text).join(''))
+  expect(rolled(0)[1]).toBe(`  ▟███▙${' '.repeat(33)}`)
+  expect(rolled(100)[1]).toBe(`  ▗████▖${' '.repeat(32)}`)
+  expect(rolled(200)[1]).toBe(`   ▟███▙${' '.repeat(32)}`)
   expect(rows('baby')[0]!.trim()).toBe('')
   expect(rows('kid')[1]).toContain(' █████ ')
   expect(pet('idle', 600, false, PET_WIDTH, 'adult', 'mint')[1]!.some(x => x.color === 'success')).toBe(true)
