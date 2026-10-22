@@ -289,6 +289,42 @@ let sessionStartedAt = 0
 // Which span the Stats tab sums: all time, the last 30 days or the last 7.
 let statsRange: PetRange = 'all'
 
+/**
+ * Loads what this session keeps from the store: pins, theme, effects and the
+ * pet. Runs at session start, and again when a /clear or /resume swaps in a new
+ * session: its state starts empty and no session start fires for it.
+ */
+async function loadSaved($: EngineInterface): Promise<void> {
+  try {
+    const id = await $.session.id()
+    await update($, sessionId, () => id)
+    const saved = await $.store.get(PINS_KEY)
+    if (Array.isArray(saved)) await update($, pins, () => saved as PinnedSession[])
+    const savedTheme = await $.store.get(THEME_KEY)
+    if (typeof savedTheme === 'string') await update($, theme, () => savedTheme)
+    const savedEffects = await $.store.get(EFFECTS_KEY)
+    if (savedEffects !== undefined) await update($, effects, () => effectsFrom(savedEffects))
+    const days = await $.settings.read({ key: 'cleanupPeriodDays' })
+    if (typeof days === 'number' && days > 0) await update($, keepDays, () => days)
+  } catch {
+    // Pins load on the next session start.
+  }
+  // The pet loads on its own, so a failing read above never leaves it unborn.
+  const bornAt = await $.clock.now()
+  sessionStartedAt = bornAt
+  await savePet($, l => (l.bornAt === 0 ? { ...l, bornAt } : l))
+  try {
+    const model = await $.session.model()
+    await update($, modelInfo, old => old ?? { model, effort: null })
+  } catch {
+    // No model reading yet: the first request fills it in.
+  }
+}
+
+// Whether loadSaved is running, and when the frame clock last started it.
+let isLoading = false
+let loadedAt = 0
+
 // Whether the Pet tab is asking to confirm a new egg.
 let isAskingNewEgg = false
 
@@ -604,31 +640,8 @@ export const register: Register = (on, options) => {
       name: 'pat',
       description: 'Pet your pet',
     })
-    try {
-      const id = await $.session.id()
-      await update($, sessionId, () => id)
-      const saved = await $.store.get(PINS_KEY)
-      if (Array.isArray(saved)) await update($, pins, () => saved as PinnedSession[])
-      const savedTheme = await $.store.get(THEME_KEY)
-      if (typeof savedTheme === 'string') await update($, theme, () => savedTheme)
-      const savedEffects = await $.store.get(EFFECTS_KEY)
-      if (savedEffects !== undefined) await update($, effects, () => effectsFrom(savedEffects))
-      const days = await $.settings.read({ key: 'cleanupPeriodDays' })
-      if (typeof days === 'number' && days > 0) await update($, keepDays, () => days)
-    } catch {
-      // Pins load on the next session start.
-    }
-    // The pet loads on its own, so a failing read above never leaves it unborn.
-    const bornAt = await $.clock.now()
-    sessionStartedAt = bornAt
-    await savePet($, l => (l.bornAt === 0 ? { ...l, bornAt } : l))
+    await loadSaved($)
     void $.ui.open({ id: PANE, title: TITLE })
-    try {
-      const model = await $.session.model()
-      await update($, modelInfo, old => old ?? { model, effort: null })
-    } catch {
-      // No model reading yet: the first request fills it in.
-    }
     // Keeps the clocks above the prompt current.
     $.clock.every(TICK_MS, () => {
       void update($, tick, n => n + 1)
@@ -643,6 +656,15 @@ export const register: Register = (on, options) => {
       beats += 1
       void (async () => {
         const now = await $.clock.now()
+        // A /clear or /resume starts a new session with empty state: load again,
+        // trying at most every few seconds should the session id not answer.
+        if (!isLoading && now - loadedAt >= TICK_MS && (await read($, sessionId)) === null) {
+          isLoading = true
+          loadedAt = now
+          await loadSaved($).finally(() => {
+            isLoading = false
+          })
+        }
         framePhase = now % FRAME_MS
         // Ten frames a second while something moves, two at rest. Motion is
         // placed by the clock, not by the frame count, so a change of pace
