@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, dayKey, feedAndAward, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, dayKey, feedAndAward, petFeeling, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1059,5 +1059,64 @@ test('the Pet tab shows the pet, its skins and achievements; /pet names it', asy
   expect(await ui.find({ type: 'Text', text: /^Effects$/ })).toBeDefined()
   await ui.press({ key: 'group-work' })
   expect(await ui.find({ type: 'Text', text: /^Guard$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the pet tires from a long day, frets over failures and dozes off late', async () => {
+  const noon = new Date(2026, 9, 22, 12).getTime()
+  const MIN = 60_000
+  const calm = { now: noon, todayTurns: 5, work2h: 10 * MIN, work3h: 10 * MIN, failures: 0, idleMs: MIN }
+  expect(petFeeling(calm)).toBe('fine')
+  expect(petFeeling({ ...calm, todayTurns: 30 })).toBe('tired')
+  expect(petFeeling({ ...calm, work2h: 80 * MIN })).toBe('tired')
+  expect(petFeeling({ ...calm, todayTurns: 60, failures: 5 })).toBe('exhausted')
+  expect(petFeeling({ ...calm, todayTurns: 30, failures: 3 })).toBe('stressed')
+  expect(petFeeling({ ...calm, now: new Date(2026, 9, 22, 23, 30).getTime() })).toBe('sleepy')
+  expect(petFeeling({ ...calm, idleMs: 31 * MIN })).toBe('bored')
+  // Only the part of each turn inside the window counts; a running turn counts up to now.
+  const turns = [
+    { startedAt: noon - 3 * 60 * MIN, durationMs: 90 * MIN },
+    { startedAt: noon - 10 * MIN, durationMs: null },
+  ]
+  expect(workIn(turns, noon, 2 * 60 * MIN)).toBe(40 * MIN)
+  expect(workIn(turns, noon, 3 * 60 * MIN)).toBe(100 * MIN)
+  // Feelings show on the face: heavy lids, crossed eyes, and a worn-out pet asleep at rest.
+  const text = (mood: Parameters<typeof pet>[0], feeling: Parameters<typeof pet>[7]) =>
+    pet(mood, 600, false, PET_WIDTH, 'adult', 'classic', feeling).flat().map(x => x.text).join('')
+  expect(text('work', 'tired')).toContain('▀')
+  expect(text('work', 'stressed')).toContain('▚')
+  expect(text('work', 'fine')).not.toContain('▀')
+  expect(text('idle', 'exhausted')).toBe(text('sleep', 'fine'))
+})
+
+test('a long day tells you once that the pet is tired', async ($, on) => {
+  const now = new Date(2026, 9, 22, 12).getTime()
+  const life = { ...newPetLife(now - 86_400_000), days: { [dayKey(now)]: 29 }, turns: 29, lastFedAt: now - 60_000 }
+  mock.store(on, { petLife: life })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ value: {} as never }))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined } as never
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('session.usage', () => ({
+    value: { startedAt: now, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  for (const id of ['t1', 't2']) {
+    await $.turn.start({ text: id, turnId: id })
+    await $.turn.complete({ turnId: id, answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+  }
+  expect(toasts.filter(t => t.includes('Clawd is tired')).length).toBe(1)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'group-pet' })
+  expect(await ui.find({ type: 'Text', text: /^Tired$/ })).toBeDefined()
   await ui.unmount()
 })

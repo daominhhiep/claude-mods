@@ -1,6 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionUsage } from 'claude-code'
 
+import type { PetFeeling } from './rules'
+
 import type {
   AgentCost,
   AgentNode,
@@ -60,8 +62,12 @@ import {
   PET_WIDTH,
   PET_ACHIEVEMENTS,
   PET_HATCH_TURNS,
+  PET_FEELINGS,
   PET_SKINS,
+  dayKey,
   feedAndAward,
+  petFeeling,
+  workIn,
   hasSkin,
   petDays,
   petLifeFrom,
@@ -192,6 +198,27 @@ async function savePet($: EngineInterface, change: (life: PetLife) => PetLife): 
     // Kept for this session; saved again on the next change.
   }
   return next
+}
+
+// When this session started, so a pet left alone from the start gets bored too.
+let sessionStartedAt = 0
+// The feelings already announced, by day, so each is toasted once a day.
+const feltToday = new Set<string>()
+
+/** How the pet feels at `now`, from today's turns, this session's work and its failures. */
+async function feelingOf($: EngineInterface, life: PetLife, now: number): Promise<PetFeeling> {
+  const turns = await read($, costs)
+  const last = turns.at(-1)
+  const lastEnd =
+    last === undefined ? sessionStartedAt : last.durationMs === null ? now : last.startedAt + last.durationMs
+  return petFeeling({
+    now,
+    todayTurns: life.days[dayKey(now)] ?? 0,
+    work2h: workIn(turns, now, 2 * 3_600_000),
+    work3h: workIn(turns, now, 3 * 3_600_000),
+    failures: (await read($, calls)).filter(c => c.status === 'error' && c.startedAt >= now - 600_000).length,
+    idleMs: Math.max(0, now - lastEnd),
+  })
 }
 
 /** True while something moves: a prompt or agent runs, a guard waits, the cache is about to go cold. */
@@ -467,6 +494,7 @@ export const register: Register = (on, options) => {
     }
     // The pet loads on its own, so a failing read above never leaves it unborn.
     const bornAt = await $.clock.now()
+    sessionStartedAt = bornAt
     await savePet($, l => (l.bornAt === 0 ? { ...l, bornAt } : l))
     void $.ui.open({ id: PANE, title: TITLE })
     try {
@@ -753,6 +781,13 @@ export const register: Register = (on, options) => {
         for (const a of earned) {
           const skin = PET_SKINS.find(k => k.unlock === a.id)
           news.push(`Achievement: ${a.name}${skin === undefined ? '' : ` (new skin: ${skin.name})`}`)
+        }
+        // A heavy feeling is said once a day, when it first sets in.
+        const feeling = await feelingOf($, life, at)
+        const key = `${dayKey(at)}:${feeling}`
+        if ((feeling === 'tired' || feeling === 'exhausted' || feeling === 'stressed') && !feltToday.has(key)) {
+          feltToday.add(key)
+          news.push(`${life.name} is ${PET_FEELINGS[feeling].name.toLowerCase()}. ${PET_FEELINGS[feeling].tip}`)
         }
         if (news.length > 0) $.ui.toast(news.join(' · '))
       }
@@ -1138,6 +1173,7 @@ export const register: Register = (on, options) => {
     const isPetAway = showPet && redrawTranscript && working2
     const life = await read($, petLife)
     const lifeStats = petStats(life, now)
+    const feeling = showPet ? await feelingOf($, life, now) : 'fine'
     const petRows = isPetAway
       ? [0, 1, 2].map(() => [{ text: ' '.repeat(PET_WIDTH), color: '' }])
       : showPet
@@ -1158,6 +1194,7 @@ export const register: Register = (on, options) => {
           PET_WIDTH,
           lifeStats.stage,
           life.skin,
+          feeling,
         )
       : null
 
@@ -1425,7 +1462,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {line}
-        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin).map((row, r) => (
+        {pet(mood, now, isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now)).map((row, r) => (
           <Box key={`pet-${r}`} height={1} overflow="hidden">
             <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
           </Box>
@@ -2212,6 +2249,7 @@ export const register: Register = (on, options) => {
       const nowPet = await $.clock.now()
       const st = petStats(life, nowPet)
       const isOn = (await read($, effects)).pet
+      const feeling = await feelingOf($, life, nowPet)
       const hungerLook = {
         full: { label: 'Full', color: 'success' },
         peckish: { label: 'Peckish', color: 'claude' },
@@ -2232,6 +2270,7 @@ export const register: Register = (on, options) => {
         Math.min(Math.max(PET_WIDTH, width), 28),
         st.stage,
         life.skin,
+        feeling,
       )
       const barWidth = Math.max(8, Math.min(20, width - 24))
       const share = Math.max(0, Math.min(1, (st.xp - st.levelFrom) / Math.max(1, st.levelTo - st.levelFrom)))
@@ -2278,6 +2317,15 @@ export const register: Register = (on, options) => {
               <Text color={paint('inactive')}>{'   Mood '}</Text>
               <Text color={paint('error')}>{'●'.repeat(st.hearts)}</Text>
               <Text color={paint('inactive')}>{'○'.repeat(5 - st.hearts)}</Text>
+            </Text>
+            <Text wrap="wrap">
+              <Text color={paint('inactive')}>Feeling </Text>
+              <Text color={paint(PET_FEELINGS[feeling].color)} bold>
+                {PET_FEELINGS[feeling].name}
+              </Text>
+              {feeling === 'fine' ? null : (
+                <Text color={paint('inactive')}>{` · ${PET_FEELINGS[feeling].tip}`}</Text>
+              )}
             </Text>
             <Text color={paint('inactive')} wrap="wrap">
               {`${st.ageDays} ${st.ageDays === 1 ? 'day' : 'days'} old · used on ${st.activeDays} ${

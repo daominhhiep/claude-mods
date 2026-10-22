@@ -796,13 +796,15 @@ export function petMood(s: {
  * moves at the same speed however often it is drawn.
  */
 export function pet(
-  mood: PetMood,
+  shownMood: PetMood,
   now: number,
   isSweating: boolean,
   width: number = PET_WIDTH,
   stage: PetStage = 'adult',
   skin: string = 'classic',
+  feeling: PetFeeling = 'fine',
 ): { text: string; color: string }[][] {
+  let mood = shownMood
   const w = Math.max(PET_WIDTH, Math.floor(width))
   const grid = Array.from({ length: 3 }, () => Array.from({ length: w }, () => ({ ch: ' ', color: '' })))
   const put = (row: number, col: number, ch: string, color: string) => {
@@ -815,14 +817,41 @@ export function pet(
   const pose: PetPose = { shut: beat(500) % 8 === 0, up: false, apart: false }
   let body = (PET_SKINS.find(k => k.id === skin) ?? PET_SKINS[0]!).color
 
+  // A worn-out pet at rest dozes off whatever the cache does.
+  if (mood === 'idle' && feeling === 'exhausted') mood = 'sleep'
+  // Eyes that show how it feels, as the left and right eye glyphs.
+  let eyes: [string, string] | null = null
+
   if (mood === 'work') {
     // Paces its yard, legs swinging: a step every quarter second in the
     // band's yard, ten a second across a wide one so it gets somewhere.
-    // An egg rolls the same way.
+    // An egg rolls the same way. Tired it drags its feet; worn out it crawls.
+    const slow = feeling === 'exhausted' ? 4 : feeling === 'tired' ? 2 : 1
     const span = room * 2
-    const step = beat(w > PET_WIDTH ? 100 : 250) % span
+    const step = beat((w > PET_WIDTH ? 100 : 250) * slow) % span
     x = step <= room ? step : span - step
-    pose.apart = beat(250) % 2 === 1
+    pose.apart = beat(250 * slow) % 2 === 1
+    if (feeling === 'tired' || feeling === 'exhausted') eyes = ['▀', '▀']
+    if (feeling === 'stressed') eyes = ['▚', '▞']
+  } else if (mood === 'idle') {
+    if (feeling === 'tired' || feeling === 'sleepy') {
+      // Heavy lids, and a yawn every few seconds.
+      eyes = ['▀', '▀']
+      const yawn = beat(1000) % (feeling === 'sleepy' ? 3 : 5) === 0
+      if (yawn) {
+        pose.shut = true
+        put(0, x + PET_BODY, 'o', 'inactive')
+      }
+    } else if (feeling === 'stressed') {
+      // Frowns and stamps, steam rising.
+      eyes = ['▚', '▞']
+      pose.apart = beat(300) % 2 === 0
+      put(0, x - 1, beat(400) % 2 === 0 ? '#' : '×', 'error')
+      put(0, x + PET_BODY, beat(400) % 2 === 0 ? '×' : '#', 'error')
+    } else if (feeling === 'bored') {
+      // Looks one way, then the other.
+      eyes = beat(1500) % 2 === 0 ? ['▛', '▛'] : ['▜', '▜']
+    }
   } else if (mood === 'happy') {
     // Jumps for joy on every other beat, with sparkles.
     pose.up = beat(300) % 2 === 0
@@ -848,9 +877,10 @@ export function pet(
     if (beat(2000) % 2 === 0) put(0, x + PET_BODY, '?', 'warning')
   }
 
-  PET_SPRITES[stage](pose).forEach((line, row) =>
-    Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)),
-  )
+  PET_SPRITES[stage](pose)
+    // The head row is the one with its face: ▐ … ▌.
+    .map(line => (eyes === null || pose.shut || !line.includes('▐') ? line : line.replace('▛', eyes[0]).replace('▜', eyes[1])))
+    .forEach((line, row) => Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, body)))
   if (isSweating && mood !== 'sleep' && stage !== 'egg') {
     // A drop drips beside its head when the context fills up.
     put(0, x, beat(500) % 2 === 0 ? "'" : ',', 'suggestion')
@@ -1096,4 +1126,55 @@ export function feedAndAward(life: PetLife, now: number): { life: PetLife; earne
     life: { ...after, achievements: { ...after.achievements, ...Object.fromEntries(earned.map(a => [a.id, now])) } },
     earned,
   }
+}
+
+// ── Feelings ─────────────────────────────────────────────────────────
+
+/** How the pet feels over the day, as against its mood of the moment. */
+export type PetFeeling = 'fine' | 'tired' | 'exhausted' | 'stressed' | 'sleepy' | 'bored'
+
+export const PET_FEELINGS: Record<PetFeeling, { name: string; color: string; tip: string }> = {
+  fine: { name: 'Fine', color: 'success', tip: 'All good.' },
+  tired: { name: 'Tired', color: 'warning', tip: 'A short break would help.' },
+  exhausted: { name: 'Worn out', color: 'error', tip: 'Time to stop for the day, or at least take a long break.' },
+  stressed: { name: 'Stressed', color: 'error', tip: 'Several tools failed in a row. Step back for a moment?' },
+  sleepy: { name: 'Sleepy', color: 'suggestion', tip: "It's late. Bed soon?" },
+  bored: { name: 'Bored', color: 'subtle', tip: 'Nothing to do for a while. Got a task?' },
+}
+
+const MINUTE = 60_000
+
+/** How much of the last `windowMs` was spent in turns, in ms; a turn still running counts up to now. */
+export function workIn(turns: readonly { startedAt: number; durationMs: number | null }[], now: number, windowMs: number): number {
+  const from = now - windowMs
+  return turns.reduce((sum, t) => {
+    const end = t.durationMs === null ? now : t.startedAt + t.durationMs
+    return sum + Math.max(0, Math.min(end, now) - Math.max(t.startedAt, from))
+  }, 0)
+}
+
+/**
+ * How the pet feels, the heaviest reason first: worn out by a very long day
+ * or hours without a break, stressed by tools failing in a row, tired,
+ * sleepy late at night, or bored when nothing has happened for a while.
+ */
+export function petFeeling(s: {
+  now: number
+  /** Turns finished today, across sessions. */
+  todayTurns: number
+  /** Time in turns over the last two and three hours. */
+  work2h: number
+  work3h: number
+  /** Tool calls that failed in the last ten minutes. */
+  failures: number
+  /** Time since the last turn ended, or since the session started. */
+  idleMs: number
+}): PetFeeling {
+  if (s.todayTurns >= 60 || s.work3h >= 150 * MINUTE) return 'exhausted'
+  if (s.failures >= 3) return 'stressed'
+  if (s.todayTurns >= 30 || s.work2h >= 75 * MINUTE) return 'tired'
+  const hour = new Date(s.now).getHours()
+  if (hour >= 23 || hour < 5) return 'sleepy'
+  if (s.idleMs >= 30 * MINUTE) return 'bored'
+  return 'fine'
 }

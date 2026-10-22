@@ -60,7 +60,7 @@ Three cards head every tab: context with its trend, cost with each prompt's shar
 | Work · Guard | Destructive commands that were stopped for approval, with a preview of what they would affect |
 | Work · Diff | Each file edit as a diff, step by step (Prev / Next / Latest) |
 | Pins | Pinned sessions of this project (or all projects): name, title, last active, cost, a warning before Claude Code cleans the transcript up, and Open (fills `/resume <id>`) |
-| Pet | Your pet: stage, level and XP, food, mood, age and streak, the last 14 days, skins to wear and achievements |
+| Pet | Your pet: stage, level and XP, food, mood, feeling, age and streak, the last 14 days, skins to wear and achievements |
 | Settings · Theme | Pick a color theme: Claude (follows your Claude Code theme), Ocean, Sunset, Neon, Forest, Mono, Cyberpunk; kept for every session |
 | Settings · Effects | Turn each effect on or off; kept for every session |
 
@@ -74,6 +74,7 @@ The pet is kept across sessions and grows with how often you use Claude Code. Ev
 - **Mood**: up to five dots, from how many of the last seven days you used Claude.
 - **Achievements** (13): hatching, streaks of 3, 7 and 30 days, 7 and 30 days of use, 100 and 1,000 turns, 20 turns in a day, a turn after midnight, before 7 am or on a weekend, and coming back after three days away.
 - **Skins**: Classic, plus seven more colors, each unlocked by an achievement; pick one in the Pet tab.
+- **Feelings**: the pet feels your day. Tired after 30 turns today or 75 minutes of work in the last two hours (heavy eyes, slower steps, yawns); worn out after 60 turns or 2½ hours of work in three (it crawls, and falls asleep when you stop); stressed when three tools fail within ten minutes; sleepy from 11 pm to 5 am; bored after half an hour with nothing to do. The Pet tab names the feeling with a tip, and a tired, worn-out or stressed pet tells you once a day. Work time counts this session; turns count every session today.
 - `/pet` shows how it is doing; `/pet Mochi` names it.
 
 **Guards**
