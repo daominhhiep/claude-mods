@@ -12,6 +12,8 @@ export type PetLife = {
   turns: number
   /** The skin it wears, one of PET_SKINS. */
   skin: string
+  /** The accessory it wears, one of PET_ACCESSORIES, or null. */
+  accessory: string | null
   /** Achievement id to when it was earned. */
   achievements: Record<string, number>
   /** Times it has been petted, and when last. */
