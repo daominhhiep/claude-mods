@@ -1,4 +1,4 @@
-export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'skins' | 'trophies'
+export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'stats' | 'evolution' | 'skins' | 'trophies'
 
 export type PetLifeStage = 'egg' | 'baby' | 'kid' | 'adult' | 'elder'
 
