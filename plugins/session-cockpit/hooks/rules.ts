@@ -475,18 +475,28 @@ const GAUGES: Record<Exclude<GaugeKind, 'smooth'>, { full: string; empty: string
   shade: { full: '▓', empty: '░' },
 }
 
-// What drifts above the band: glyphs, colors, how fast a step is, and how it moves.
-const AMBIENTS: Record<AmbientKind, { glyphs: string[]; colors: string[]; ms: number; move: 'fall' | 'rise' | 'twinkle' | 'flicker' }> = {
-  snow: { glyphs: ['·', '*', '⋆'], colors: ['text', 'suggestion'], ms: 700, move: 'fall' },
-  petals: { glyphs: ['✿', '❀', '·'], colors: ['claude', 'merged'], ms: 600, move: 'fall' },
-  rain: { glyphs: ['╎', '¦', '│'], colors: ['suggestion', 'permission'], ms: 200, move: 'fall' },
-  leaves: { glyphs: [',', '‘', '`'], colors: ['success', 'warning'], ms: 650, move: 'fall' },
-  embers: { glyphs: ['·', '˙', '*'], colors: ['claude', 'error', 'warning'], ms: 450, move: 'rise' },
-  bubbles: { glyphs: ['°', 'o', '∘'], colors: ['suggestion', 'permission'], ms: 600, move: 'rise' },
-  stars: { glyphs: ['·', '✧', '✦', '⋆'], colors: ['warning', 'text', 'permission'], ms: 500, move: 'twinkle' },
-  fireflies: { glyphs: ['·', '•'], colors: ['warning', 'success'], ms: 400, move: 'twinkle' },
+// What drifts above the band, and how. A falling or rising particle steps
+// through its glyphs, top to bottom, within each row before it moves to the
+// next (˙ · . reads as one dot sinking), so it moves a third or half a row a
+// step. Petals and leaves keep their shape and slide sideways instead.
+// Twinkles fade through their glyphs. `ms` is one step.
+const AMBIENTS: Record<
+  AmbientKind,
+  { glyphs: string[]; colors: string[]; ms: number; move: 'fall' | 'rise' | 'twinkle' | 'flicker'; drift?: true }
+> = {
+  snow: { glyphs: ['˙', '·', '.'], colors: ['text', 'suggestion'], ms: 240, move: 'fall' },
+  petals: { glyphs: ['✿', '❀'], colors: ['claude', 'merged'], ms: 300, move: 'fall', drift: true },
+  rain: { glyphs: ['╵', '│', '╷'], colors: ['suggestion', 'permission'], ms: 100, move: 'fall' },
+  leaves: { glyphs: [',', '‘'], colors: ['success', 'warning'], ms: 320, move: 'fall', drift: true },
+  embers: { glyphs: ['˙', '·', '.'], colors: ['claude', 'error', 'warning'], ms: 160, move: 'rise' },
+  bubbles: { glyphs: ['°', 'o'], colors: ['suggestion', 'permission'], ms: 300, move: 'rise' },
+  stars: { glyphs: ['·', '✧', '✦', '✧', '·'], colors: ['warning', 'text', 'permission'], ms: 200, move: 'twinkle' },
+  fireflies: { glyphs: ['·', '•', '•', '·'], colors: ['warning', 'success'], ms: 200, move: 'twinkle' },
   glitch: { glyphs: ['▚', '▞', '░', '▒'], colors: ['suggestion', 'error', 'permission'], ms: 150, move: 'flicker' },
 }
+
+/** How often, in ms, a theme's weather moves: when the band should redraw for it. */
+export const ambientStepMs = (kind: AmbientKind) => AMBIENTS[kind].ms
 
 const mix = (a: number, b: number) => {
   let h = Math.imul(a + 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35)
@@ -501,28 +511,34 @@ const mix = (a: number, b: number) => {
  */
 export function ambient(kind: AmbientKind, width: number, now: number): { ch: string; color: string }[][] {
   const a = AMBIENTS[kind]
+  const n = a.glyphs.length
   const step = Math.floor(now / a.ms)
   const rows = [0, 1].map(() => Array.from({ length: Math.max(0, width) }, () => ({ ch: ' ', color: '' })))
+  const tint = (h: number) => a.colors[(h >>> 8) % a.colors.length]!
   for (let c = 0; c < width; c++) {
     const h = mix(c, 7)
-    const look = (n: number) => ({ ch: a.glyphs[n % a.glyphs.length]!, color: a.colors[(n >>> 3) % a.colors.length]! })
     if (a.move === 'flicker') {
       const k = mix(c, step)
-      if (k % 23 === 0) rows[k % 2]![c] = look(k >>> 4)
+      if (k % 23 === 0) rows[k % 2]![c] = { ch: a.glyphs[(k >>> 4) % n]!, color: tint(k) }
       continue
     }
     if (h % 4 !== 0) continue
     if (a.move === 'twinkle') {
-      // Fixed in place, lit for part of its own cycle.
-      if ((step + (h >>> 4)) % 5 < 2) rows[(h >>> 2) % 2]![c] = look((step + h) >>> 1)
+      // Fixed in place, fading in and out for part of its own cycle.
+      const p = (step + (h >>> 4)) % (n * 3)
+      if (p < n) rows[(h >>> 2) % 2]![c] = { ch: a.glyphs[p]!, color: tint(h) }
       continue
     }
-    // Falls or rises through the two rows, then waits off screen a while.
-    const y = (step + (h >>> 4)) % 5
-    if (y > 1) continue
-    // Petals and leaves drift sideways as they fall.
-    const col = kind === 'petals' || kind === 'leaves' ? Math.min(width - 1, c + y) : c
-    rows[a.move === 'rise' ? 1 - y : y]![col] = look(h >>> 5)
+    // Through the two rows in 2n steps, then off screen a while.
+    const p = (step + (h >>> 4)) % (n * 5)
+    if (p >= n * 2) continue
+    if (a.drift === true) {
+      const col = Math.min(width - 1, c + p)
+      rows[Math.floor(p / n)]![col] = { ch: a.glyphs[(h >>> 5) % n]!, color: tint(h) }
+      continue
+    }
+    const at = a.move === 'rise' ? n * 2 - 1 - p : p
+    rows[Math.floor(at / n)]![c] = { ch: a.glyphs[at % n]!, color: tint(h) }
   }
   return rows
 }
@@ -798,7 +814,7 @@ export function headsUp(text: string): string | null {
 
 // ── Effects ──────────────────────────────────────────────────────────
 
-export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet'
+export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather'
 export type Effects = Record<EffectId, boolean>
 
 /** Each effect Settings · Effects turns on and off, in the order it lists them. */
@@ -810,6 +826,7 @@ export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
   { id: 'typing', label: "Type out Claude's replies", hint: 'Each new reply appears letter by letter, in about a second.' },
   { id: 'ring', label: 'Light around the frame', hint: 'A light circles the band: quick while Claude works, slow at rest.' },
   { id: 'pet', label: 'Claude pet', hint: 'A little Claude lives in the band: it runs while Claude works, cheers when a turn ends and naps when the cache goes cold.' },
+  { id: 'weather', label: 'Theme weather', hint: 'Snow, petals, rain or stars drift above the band in themes that have them. Turn off if the terminal feels slow.' },
 ]
 
 export const DEFAULT_EFFECTS: Effects = {
@@ -820,6 +837,7 @@ export const DEFAULT_EFFECTS: Effects = {
   typing: true,
   ring: true,
   pet: true,
+  weather: true,
 }
 
 /** Saved effects read back, any missing or broken entry at its default. */

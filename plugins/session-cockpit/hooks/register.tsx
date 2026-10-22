@@ -29,6 +29,7 @@ import {
   themeStyle,
   FRAMES,
   ambient,
+  ambientStepMs,
   THEMES,
   shimmer,
   spin,
@@ -630,16 +631,24 @@ export const register: Register = (on, options) => {
     })
     // Drives the spinners and the cache pulse, only while something moves.
     let beats = 0
+    let weatherStep = -1
     $.clock.every(FRAME_MS, () => {
       beats += 1
       void (async () => {
-        framePhase = (await $.clock.now()) % FRAME_MS
+        const now = await $.clock.now()
+        framePhase = now % FRAME_MS
         // Ten frames a second while something moves, two at rest. Motion is
         // placed by the clock, not by the frame count, so a change of pace
         // never changes its speed. The pane, heavier to draw, moves at two a
         // second at most, one at rest.
         const moving = (await isPlaying($)) || (await isBusy($, cacheMs))
-        if (!moving && beats % 5 !== 0) return
+        // At rest the theme's weather still redraws the band each time it
+        // moves, and only then: rain ten times a second, snow four.
+        const kind = themeStyle(await read($, theme)).ambient
+        const step = kind === null || !(await read($, effects)).weather ? -1 : Math.floor(petClock(now) / ambientStepMs(kind))
+        const isWeatherStep = step !== weatherStep
+        weatherStep = step
+        if (!moving && beats % 5 !== 0 && (step === -1 || !isWeatherStep)) return
         await update($, frame, n => n + 1)
         if (beats % (moving ? 5 : 10) === 0) await update($, paneFrame, n => n + 1)
       })()
@@ -1544,9 +1553,9 @@ export const register: Register = (on, options) => {
 
     // What drifts above the band in this theme: snow, petals, rain, stars.
     const air =
-      look.ambient === null
+      look.ambient === null || !fx.weather
         ? null
-        : ambient(look.ambient, W, now).map(row => row.map(c => (c.color === '' ? { ...c, color: 'subtle' } : c)))
+        : ambient(look.ambient, W, petClock(now)).map(row => row.map(c => (c.color === '' ? { ...c, color: 'subtle' } : c)))
     // The pet's body above the border, its feet drawn into it. A click
     // anywhere on it pets it, where the surface can tell.
     const perch =

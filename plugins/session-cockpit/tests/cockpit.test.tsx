@@ -563,7 +563,7 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     // Neon draws its own frame and title mark, with rain above, not just its colors.
     expect(drawn).toContain('┏━')
     expect(drawn).toContain('⚡ COCKPIT')
-    expect(drawn).toMatch(/[╎¦]/)
+    expect(drawn).toMatch(/[╵│╷]/)
     await band.unmount()
     // The tab previews the chosen theme, sorts themes by terminal background,
     // and can pick one at random or go back to Claude's own.
@@ -578,11 +578,25 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     await ui.press({ key: 'theme-neon' })
     await ui.unmount()
   }
+  // Theme weather can be turned off on a slow terminal; the frame stays.
+  const settings = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await settings.press({ key: 'group-settings' })
+  await settings.press({ key: 'tab-config' })
+  expect(await settings.find({ type: 'Text', text: /Theme weather/ })).toBeDefined()
+  await settings.press({ key: 'fx-weather' })
+  await settings.unmount()
+  const still = await $.ui.mount({ ...BAND, surface: 'terminal' } as never)
+  const calm = JSON.stringify(await still.drawn())
+  expect(calm).toContain('┏━')
+  expect(calm).not.toMatch(/[╵╷]/)
+  await still.unmount()
   expect(THEMES.length).toBe(15)
   // Rain falls through the two rows above the band, a step at a time.
   const rain = (t: number) => ambient('rain', 80, t).map(r => r.map(c => c.ch).join(''))
-  expect(rain(0).join('')).toMatch(/[╎¦│]/)
-  expect(rain(0)).not.toEqual(rain(200))
+  expect(rain(0).join('')).toMatch(/[╵│╷]/)
+  expect(rain(0)).not.toEqual(rain(100))
+  // A drop sinks a third of a row a step: ╵ then │ then ╷, then the next row.
+  expect([0, 1, 2, 3, 4, 5].map(i => rain(i * 100).map(r => r[7]).join(''))).toEqual(['╵ ', '│ ', '╷ ', ' ╵', ' │', ' ╷'])
   const pips = smoothBar(50, 10, 'pips')
   expect(pips.runs.map(r => r.text).join('') + pips.rest).toBe('▰▰▰▰▰▱▱▱▱▱')
   expect(themeStyle('claude')).toEqual({ frame: 'round', mark: '◆', gauge: 'smooth', ambient: null })
