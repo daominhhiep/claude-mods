@@ -1042,7 +1042,7 @@ export function pet(
   stage: PetStage = 'adult',
   skin: string = 'classic',
   feeling: PetFeeling = 'fine',
-  look: { species?: string | null; path?: string | null } = {},
+  look: { species?: string | null; path?: string | null; accessory?: string | null } = {},
 ): { text: string; color: string }[][] {
   let mood = shownMood
   const w = Math.max(PET_WIDTH, Math.floor(width))
@@ -1055,7 +1055,8 @@ export function pet(
   const room = w - PET_BODY - 1
   let x = Math.floor(room / 2)
   const pose: PetPose = { shut: beat(500) % 8 === 0, up: false, apart: false }
-  let body = (PET_SKINS.find(k => k.id === skin) ?? PET_SKINS[0]!).color
+  const worn = PET_SKINS.find(k => k.id === skin) ?? PET_SKINS[0]!
+  let body = worn.color
 
   // A worn-out pet at rest dozes off whatever the cache does.
   if (mood === 'idle' && feeling === 'exhausted') mood = 'sleep'
@@ -1138,16 +1139,24 @@ export function pet(
 
   const accent = stage === 'egg' ? undefined : PET_SPECIES.find(k => k.id === look.species)?.sprites?.accent
   const shell = stage === 'egg' ? eggSprite(egg.half, egg.lean, pose.up) : null
-  ;(shell === null ? spriteOf(stage, look.species ?? null)(pose) : shell.rows)
-    // The face row has its eyes as ▛ then ▜; the body row has them the other way.
-    .map(line =>
-      eyes === null || pose.shut || !(line.indexOf('▛') !== -1 && line.indexOf('▜') > line.indexOf('▛'))
-        ? line
-        : line.replace('▛', eyes[0]).replace('▜', eyes[1]),
-    )
+  const lines = shell === null ? spriteOf(stage, look.species ?? null)(pose) : shell.rows
+  // The face row has its eyes as ▛ then ▜; the body row has them the other way.
+  const isFace = (line: string) => line.indexOf('▛') !== -1 && line.indexOf('▜') > line.indexOf('▛')
+  // Where its head is: the row with its eyes, or its top row for a face drawn otherwise.
+  const eyeRow = shell === null ? lines.findIndex(isFace) : -1
+  const faceRow = shell !== null ? -1 : eyeRow !== -1 ? eyeRow : lines.findIndex(l => l.trim() !== '')
+  const eyeCols = eyeRow === -1 ? [] : [lines[eyeRow]!.indexOf('▛'), lines[eyeRow]!.indexOf('▜')]
+  // A patterned skin paints some cells of the body in its second color.
+  const isPatterned = worn.pattern !== undefined && body === worn.color
+  lines
+    .map(line => (eyes === null || pose.shut || !isFace(line) ? line : line.replace('▛', eyes[0]).replace('▜', eyes[1])))
     .forEach((line, row) => {
       const color = accent !== undefined && accent.row === row ? accent.color : body
-      Array.from(line).forEach((ch, i) => ch !== ' ' && put(row, x + i, ch, color))
+      Array.from(line).forEach((ch, i) => {
+        if (ch === ' ') return
+        const isMarked = isPatterned && color === body && skinMark(worn.pattern!.kind, row, i)
+        put(row, x + i, ch, isMarked ? worn.pattern!.color : color)
+      })
     })
   // The egg's shell is speckled: two pale spots on the skin's color.
   if (shell !== null && body !== 'subtle') {
@@ -1158,6 +1167,30 @@ export function pet(
   if (way !== undefined && way.mark !== '' && (stage === 'adult' || stage === 'elder')) {
     const at = grid[way.row]?.[x - 1]
     if (at !== undefined && at.ch === ' ') put(way.row, x - 1, way.mark, way.color)
+  }
+  // What it wears, where the cells are free: the body's own edges set where.
+  const gear = PET_ACCESSORIES.find(a => a.id === look.accessory)
+  if (gear !== undefined && faceRow !== -1) {
+    const ends = (row: number) => {
+      const cells = Array.from(lines[row] ?? '')
+      return { first: cells.findIndex(c => c !== ' '), last: cells.length - 1 - [...cells].reverse().findIndex(c => c !== ' ') }
+    }
+    const free = (row: number, col: number) => grid[row]?.[col]?.ch === ' '
+    const face = ends(faceRow)
+    const below = Math.min(2, faceRow + 1)
+    if (gear.id === 'bow' && free(faceRow, x + face.last + 1)) put(faceRow, x + face.last + 1, '⋈', 'error')
+    if (gear.id === 'flower' && free(faceRow, x + face.first - 1)) put(faceRow, x + face.first - 1, '✿', 'warning')
+    if (gear.id === 'shades' && !pose.shut) for (const c of eyeCols) put(faceRow, x + c, '█', 'inactive')
+    if (gear.id === 'sweater' && below !== faceRow) {
+      Array.from(lines[below] ?? '').forEach((ch, i) => ch !== ' ' && put(below, x + i, ch, 'error'))
+    }
+    if (gear.id === 'wand') {
+      const at = x + ends(below).last + 1
+      if (free(below, at)) put(below, at, '╱', 'warning')
+      // Its star sits above the stick, or beside it where an arm is in the way.
+      if (free(below - 1, at + 1)) put(below - 1, at + 1, '✦', 'warning')
+      else if (free(below, at + 1)) put(below, at + 1, '✦', 'warning')
+    }
   }
   if (isSweating && mood !== 'sleep' && stage !== 'egg') {
     // A drop drips beside its head when the context fills up.
@@ -1237,6 +1270,7 @@ export function newPetLife(now: number): PetLife {
     lastFedAt: null,
     turns: 0,
     skin: 'classic',
+    accessory: null,
     achievements: {},
     pats: 0,
     lastPattedAt: null,
@@ -1272,6 +1306,7 @@ export function petLifeFrom(saved: unknown, now: number): PetLife {
     lastFedAt: typeof v.lastFedAt === 'number' ? v.lastFedAt : null,
     turns: typeof v.turns === 'number' && v.turns >= 0 ? Math.floor(v.turns) : 0,
     skin: typeof v.skin === 'string' && PET_SKINS.some(k => k.id === v.skin) ? v.skin : 'classic',
+    accessory: typeof v.accessory === 'string' && PET_ACCESSORIES.some(a => a.id === v.accessory) ? v.accessory : null,
     achievements: Object.fromEntries(
       Object.entries(v.achievements !== null && typeof v.achievements === 'object' ? v.achievements : {}).filter(
         ([id, at]) => PET_ACHIEVEMENTS.some(a => a.id === id) && typeof at === 'number',
@@ -1433,8 +1468,30 @@ export const PET_ACHIEVEMENTS: PetAchievement[] = [
 ]
 
 /** Each skin: the theme color the pet is painted in, and the achievement that unlocks it. */
-export const PET_SKINS: { id: string; name: string; color: string; unlock: string | null }[] = [
+export type SkinPattern = 'stripes' | 'stars' | 'candy'
+
+/** Whether a patterned skin paints the sprite cell at `row`, `col` in its second color. */
+function skinMark(kind: SkinPattern, row: number, col: number): boolean {
+  if (kind === 'stripes') return col % 2 === 1
+  if (kind === 'stars') return (row * 3 + col * 2) % 5 === 0
+  return row % 2 === 1
+}
+
+/**
+ * Colors the pet can wear: theme names, or fixed colors for the free ones a
+ * theme leaves alone. A patterned skin paints part of the body in a second color.
+ */
+export const PET_SKINS: {
+  id: string
+  name: string
+  color: string
+  unlock: string | null
+  pattern?: { kind: SkinPattern; color: string }
+}[] = [
   { id: 'classic', name: 'Classic', color: 'claude', unlock: null },
+  { id: 'sky', name: 'Sky', color: '#7ab8ff', unlock: null },
+  { id: 'rose', name: 'Rose', color: '#f48fb1', unlock: null },
+  { id: 'leaf', name: 'Leaf', color: '#9ccc65', unlock: null },
   { id: 'mint', name: 'Mint', color: 'success', unlock: 'streak-3' },
   { id: 'ocean', name: 'Ocean', color: 'suggestion', unlock: 'grown' },
   { id: 'grape', name: 'Grape', color: 'permission', unlock: 'weekend' },
@@ -1442,7 +1499,25 @@ export const PET_SKINS: { id: string; name: string; color: string; unlock: strin
   { id: 'ember', name: 'Ember', color: 'error', unlock: 'busy-day' },
   { id: 'ghost', name: 'Ghost', color: 'text', unlock: 'comeback' },
   { id: 'gold', name: 'Gold', color: 'warning', unlock: 'elder' },
+  { id: 'tiger', name: 'Tiger', color: 'warning', unlock: 'streak-30', pattern: { kind: 'stripes', color: 'inactive' } },
+  { id: 'galaxy', name: 'Galaxy', color: 'permission', unlock: 'meals-1000', pattern: { kind: 'stars', color: 'text' } },
+  { id: 'candy', name: 'Candy', color: 'error', unlock: 'pats-100', pattern: { kind: 'candy', color: 'text' } },
 ]
+
+/** What the pet can wear over its skin, one at a time, each won with an achievement. */
+export const PET_ACCESSORIES: { id: string; name: string; unlock: string }[] = [
+  { id: 'bow', name: 'Bow', unlock: 'hatched' },
+  { id: 'flower', name: 'Flower', unlock: 'pats-10' },
+  { id: 'wand', name: 'Wand', unlock: 'streak-7' },
+  { id: 'shades', name: 'Shades', unlock: 'early-bird' },
+  { id: 'sweater', name: 'Sweater', unlock: 'meals-100' },
+]
+
+/** Whether `life` may wear the accessory `id`. */
+export function hasAccessory(life: PetLife, id: string): boolean {
+  const gear = PET_ACCESSORIES.find(a => a.id === id)
+  return gear !== undefined && life.achievements[gear.unlock] !== undefined
+}
 
 /** Whether `life` may wear the skin `id`. */
 export function hasSkin(life: PetLife, id: string): boolean {

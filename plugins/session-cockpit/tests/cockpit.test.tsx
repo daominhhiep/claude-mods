@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { THEMES, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { THEMES, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1023,6 +1023,12 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(earned).toContain('grown')
   expect(hasSkin(life, 'mint')).toBe(true)
   expect(hasSkin(life, 'gold')).toBe(false)
+  // Sky, Rose and Leaf are free from the start; patterned skins and
+  // accessories come with achievements.
+  expect(['sky', 'rose', 'leaf'].every(id => hasSkin(newPetLife(start), id))).toBe(true)
+  expect(hasSkin(life, 'tiger')).toBe(false)
+  expect(hasAccessory(life, 'bow')).toBe(true)
+  expect(hasAccessory(newPetLife(start), 'bow')).toBe(false)
   // A weekend turn falls inside any seven days in a row.
   expect(earned).toContain('weekend')
 
@@ -1051,6 +1057,15 @@ test('the pet grows with the days you use Claude, earns achievements and skins',
   expect(rows('baby')[0]!.trim()).toBe('')
   expect(rows('kid')[1]).toContain(' █████ ')
   expect(pet('idle', 600, false, PET_WIDTH, 'adult', 'mint')[1]!.some(x => x.color === 'success')).toBe(true)
+  // A patterned skin paints part of the body in its second color.
+  const tiger = pet('idle', 600, false, PET_WIDTH, 'adult', 'tiger').flat()
+  expect(tiger.some(x => x.color === 'warning') && tiger.some(x => x.color === 'inactive')).toBe(true)
+  // Accessories go where the body leaves room: a bow beside its head, shades
+  // over its eyes, a sweater on its body.
+  const wearing = (accessory: string) => pet('idle', 600, false, PET_WIDTH, 'adult', 'classic', 'fine', { accessory })
+  expect(wearing('bow')[0]!.map(x => x.text).join('')).toContain('▜▌⋈')
+  expect(wearing('shades')[0]!.some(x => x.color === 'inactive' && x.text === '█')).toBe(true)
+  expect(wearing('sweater')[1]!.find(x => x.text.trim() !== '')?.color).toBe('error')
 })
 
 test('the Pet tab shows the pet, its skins and achievements; /pet names it', async ($, on) => {
@@ -1098,6 +1113,16 @@ test('the Pet tab shows the pet, its skins and achievements; /pet names it', asy
   // An owned one is worn at a press.
   await ui.press({ key: 'skin-classic' })
   expect(await ui.find({ type: 'Text', text: /^◉ $/ })).toBeDefined()
+  // Accessories sit under the skins: a locked one says how to earn it, an
+  // owned one is worn on the pet at a press.
+  await ui.press({ key: 'wear-sweater' })
+  expect(toasts.at(-1)).toContain('Hundred meals')
+  const bows = async () => (JSON.stringify(await ui.drawn()).match(/⋈/g) ?? []).length
+  const listed = await bows()
+  await ui.press({ key: 'wear-bow' })
+  expect(await bows()).toBe(listed + 1)
+  await ui.press({ key: 'wear-none' })
+  expect(await bows()).toBe(listed)
   // Settings holds Theme and Effects; Work holds four tabs.
   await ui.press({ key: 'group-settings' })
   expect(await ui.find({ type: 'Text', text: /^Effects$/ })).toBeDefined()

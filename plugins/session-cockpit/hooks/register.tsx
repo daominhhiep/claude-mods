@@ -64,6 +64,7 @@ import {
   PET_HATCH_TURNS,
   PET_FEELINGS,
   PET_SKINS,
+  PET_ACCESSORIES,
   PET_SPECIES,
   PET_RARITIES,
   PET_PATHS,
@@ -81,6 +82,7 @@ import {
   petFeeling,
   workIn,
   hasSkin,
+  hasAccessory,
   petLifeFrom,
   petStats,
   newPetLife,
@@ -144,6 +146,8 @@ const MAX_FILE_BYTES = 1_000_000
 const PREVIEW_LINES = 12
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
 const FRAME_MS = 100
+/** How each accessory looks in the Skins tab's list. */
+const GEAR_ICONS: Record<string, string> = { none: '·', bow: '⋈', flower: '✿', wand: '✦', shades: '▀', sweater: '▆' }
 // Where in its 100 ms the frame timer fires. The pet's steps fall halfway
 // between two frames (petClock), so a frame drawn a little early or late
 // never shows one step twice or skips one.
@@ -915,7 +919,9 @@ export const register: Register = (on, options) => {
         if (way !== undefined && (before as PetLife).path !== life.path) news.push(`It grew up ${an(way.name)}.`)
         for (const a of earned) {
           const skin = PET_SKINS.find(k => k.unlock === a.id)
-          news.push(`Achievement: ${a.name}${skin === undefined ? '' : ` (new skin: ${skin.name})`}`)
+          const gear = PET_ACCESSORIES.find(g => g.unlock === a.id)
+          const prize = skin !== undefined ? ` (new skin: ${skin.name})` : gear !== undefined ? ` (new accessory: ${gear.name})` : ''
+          news.push(`Achievement: ${a.name}${prize}`)
         }
         // A heavy feeling is said once a day, when it first sets in.
         const feeling = await feelingOf($, life, at)
@@ -2538,6 +2544,7 @@ export const register: Register = (on, options) => {
             : `${st.next.name} in ${st.next.days} more ${st.next.days === 1 ? 'day' : 'days'} of use`
       const earned = PET_ACHIEVEMENTS.filter(a => life.achievements[a.id] !== undefined).length
       const skinsOwned = PET_SKINS.filter(k => hasSkin(life, k.id)).length
+      const gearOwned = PET_ACCESSORIES.filter(g => hasAccessory(life, g.id)).length
       const species = PET_SPECIES.find(k => k.id === life.species)
       const way = PET_PATHS.find(w => w.id === life.path)
       const evolution = (
@@ -2778,7 +2785,15 @@ export const register: Register = (on, options) => {
                   <Text color={paint(worn ? 'claude' : 'subtle')} bold={worn}>
                     {worn ? '◉ ' : '○ '}
                   </Text>
-                  <Text color={paint(owned ? k.color : 'inactive')}>{owned ? '███' : '░░░'}</Text>
+                  {owned && k.pattern !== undefined ? (
+                    <Text>
+                      <Text color={paint(k.color)}>█</Text>
+                      <Text color={paint(k.pattern.color)}>█</Text>
+                      <Text color={paint(k.color)}>█</Text>
+                    </Text>
+                  ) : (
+                    <Text color={paint(owned ? k.color : 'inactive')}>{owned ? '███' : '░░░'}</Text>
+                  )}
                   <Text bold={worn} color={owned ? undefined : paint('inactive')}>{`  ${k.name}`}</Text>
                   {owned || need === undefined ? null : (
                     <Text color={paint('inactive')}>{`  · ${need.name}`}</Text>
@@ -2787,8 +2802,39 @@ export const register: Register = (on, options) => {
               )
             })}
           </Box>
+          {heading('Accessories', `${gearOwned} of ${PET_ACCESSORIES.length}`)}
+          <Box flexDirection="column">
+            {[null, ...PET_ACCESSORIES].map(g => {
+              const owned = g === null || hasAccessory(life, g.id)
+              const isOn = life.accessory === (g === null ? null : g.id)
+              const need = g === null ? undefined : PET_ACHIEVEMENTS.find(a => a.id === g.unlock)
+              return (
+                <Button
+                  key={`wear-${g === null ? 'none' : g.id}`}
+                  plain
+                  onPress={async () => {
+                    if (g !== null && !owned) {
+                      $.ui.toast(`The ${g.name} comes with the achievement ${need?.name ?? ''}: ${need?.hint ?? ''}.`)
+                      return
+                    }
+                    await savePet($, l => ({ ...l, accessory: g === null ? null : g.id }))
+                  }}
+                >
+                  <Text color={paint(isOn ? 'claude' : 'subtle')} bold={isOn}>
+                    {isOn ? '◉ ' : '○ '}
+                  </Text>
+                  <Text color={paint(owned ? 'text' : 'inactive')}>{`${GEAR_ICONS[g === null ? 'none' : g.id] ?? ' '}  `}</Text>
+                  <Text bold={isOn} color={owned ? undefined : paint('inactive')}>
+                    {g === null ? 'Nothing' : g.name}
+                  </Text>
+                  {owned || need === undefined ? null : <Text color={paint('inactive')}>{`  · ${need.name}`}</Text>}
+                </Button>
+              )
+            })}
+          </Box>
           <Text color={paint('inactive')} wrap="wrap">
-            Each locked skin comes with an achievement; press one to see which.
+            Classic, Sky, Rose and Leaf are free. Every other skin and accessory comes with an achievement; press a
+            locked one to see which. An egg wears its accessory once it hatches.
           </Text>
         </Box>
       )
