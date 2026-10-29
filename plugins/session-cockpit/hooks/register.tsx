@@ -2,7 +2,6 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionUsage } from 'claude-code'
 
 import type { PetFeeling, PetRange } from './rules'
-import { LAGOON_DARK, LAGOON_LIGHT, encodeCells, lagoonFrame } from './lagoon'
 
 import type {
   AgentCost,
@@ -172,11 +171,6 @@ const TYPE_MAX_MS = 1_200
 const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
 const PET_KEY = 'petLife'
-// The lagoon behind the pane: its grid as last drawn there, repainted on its
-// own clock with $.ui.blit so the pane itself never redraws for it.
-const LAGOON_MS = 66
-let lagoonMount: { columns: number; rows: number; isLight: boolean } | null = null
-let isLagoonPainting = false
 const WARN_DAYS = 7
 
 // Five groups across the top; a group of several shows its own tabs below.
@@ -655,24 +649,6 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(PR_POLL_MS, () => {
       void refreshPr($)
-    })
-    $.clock.every(LAGOON_MS, () => {
-      const at = lagoonMount
-      if (at === null || isLagoonPainting) return
-      isLagoonPainting = true
-      void (async () => {
-        try {
-          const now = await $.clock.now()
-          const cells = encodeCells(lagoonFrame(at.columns, at.rows, now, at.isLight ? LAGOON_LIGHT : LAGOON_DARK))
-          const done = await $.ui.blit({ requestId: PANE, key: 'lagoon', cells, columns: at.columns, rows: at.rows })
-          // Not mounted any more (the pane closed, another size): wait for the next draw.
-          if ('deny' in done && lagoonMount === at) lagoonMount = null
-        } catch {
-          if (lagoonMount === at) lagoonMount = null
-        } finally {
-          isLagoonPainting = false
-        }
-      })()
     })
     // Drives the spinners and the cache pulse, only while something moves.
     let beats = 0
@@ -3153,9 +3129,9 @@ export const register: Register = (on, options) => {
           $.ui.toast('Changed for this session only; it could not be saved for the next one.')
         }
       }
-      // Light mode is a setting, not an effect, and the lagoon is on trial:
+      // Light mode is a setting, not an effect, and the ocean is on trial:
       // Turn all leaves both as they are.
-      const shows = EFFECTS.filter(x => x.id !== 'light' && x.id !== 'lagoon')
+      const shows = EFFECTS.filter(x => x.id !== 'light' && x.id !== 'ocean')
       const allOn = shows.every(x => fx[x.id])
       body = (
         <Box flexDirection="column" gap={1}>
@@ -3367,28 +3343,24 @@ export const register: Register = (on, options) => {
             )
     }
 
-    // The lagoon sits first, out of the flow, so the tabs paint over it.
-    const Raster = 'Raster' in els ? els.Raster : undefined
-    const lagoonOn = Raster !== undefined && (await read($, effects)).lagoon
-    let lagoon = null
-    if (lagoonOn && Raster !== undefined) {
-      const columns = Math.max(1, Math.min(512, e.props.bodyColumns))
-      const rows = Math.max(1, Math.min(256, e.props.scroll.bodyRows))
-      const isLight = THEMES.find(t => t.id === paneTheme)?.isLight === true
-      lagoonMount = { columns, rows, isLight }
-      const cells = encodeCells(lagoonFrame(columns, rows, await $.clock.now(), isLight ? LAGOON_LIGHT : LAGOON_DARK))
-      lagoon = (
-        <Box position="absolute" top={0} left={0}>
-          <Raster key="lagoon" columns={columns} rows={rows} cells={cells} />
+    // The ocean takes the room under the content, never the content's own:
+    // it runs in a Client on its own clock, so the pane does not redraw for it.
+    const fxPane = await read($, effects)
+    if (Client !== undefined && fxPane.ocean) {
+      return (
+        <Box flexDirection="column" minHeight={e.props.scroll.bodyRows}>
+          <Box flexDirection="column" gap={1} flexShrink={0}>
+            {tabs}
+            {body}
+          </Box>
+          <Box flexDirection="column" flexGrow={1} marginTop={1}>
+            <Client key="ocean" module="./ocean-view.tsx" width="100%" flexGrow={1} props={{ fps: fxPane.light ? 10 : 20 }} />
+          </Box>
         </Box>
       )
-    } else {
-      lagoonMount = null
     }
-
     return (
       <Box flexDirection="column" gap={1}>
-        {lagoon}
         {tabs}
         {body}
       </Box>

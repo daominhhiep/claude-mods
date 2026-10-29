@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
 import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
-import { LAGOON_DARK, LAGOON_T, encodeCells, lagoonFrame } from '../hooks/lagoon'
+import { OceanScene } from '../hooks/ocean/scene'
 import { petSvg } from '../hooks/rules'
 
 const PANE = {
@@ -1570,7 +1570,7 @@ test('the Stats tab draws a year of turns and sums a chosen span', async ($, on)
   await ui.unmount()
 })
 
-test('the lagoon paints behind the pane on the terminal, and is cheap to draw', async ($, on) => {
+test('the ocean swims under the pane, and is cheap to draw', async ($, on) => {
   mock.store(on)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
@@ -1581,41 +1581,39 @@ test('the lagoon paints behind the pane on the terminal, and is cheap to draw', 
 
   // Off by default; Settings · Effects turns it on.
   let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  expect(JSON.stringify(await ui.drawn())).not.toContain('ocean-view')
   await ui.press({ key: 'group-settings' })
   await ui.press({ key: 'tab-config' })
-  await ui.press({ key: 'fx-lagoon' })
+  await ui.press({ key: 'fx-ocean' })
   await ui.unmount()
-  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const raster = await ui.find({ type: 'Raster' })
-  expect(raster).toBeDefined()
-  await ui.unmount()
-  // Surfaces without a Raster draw the pane as before.
-  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await desk.find({ type: 'Raster' })).toBeUndefined()
-  await desk.unmount()
-
-  // Every cell holds one printable width-1 character and two colors.
-  const words = lagoonFrame(60, 40, 3_000, LAGOON_DARK)
-  expect(words.length).toBe(60 * 40 * 3)
-  for (let k = 0; k < words.length; k += 3) {
-    const ch = words[k]!
-    expect(ch >= 32 && ch < 0x10000).toBe(true)
-    expect(words[k + 1]! < 0x1000000 && words[k + 2]! < 0x1000000).toBe(true)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    ui = await $.ui.mount({ ...PANE, surface })
+    expect(JSON.stringify(await ui.drawn())).toContain('ocean-view')
+    await ui.unmount()
   }
-  // Something swims: frames a second apart differ.
-  const other = lagoonFrame(60, 40, 4_000, LAGOON_DARK)
-  expect(words.some((v, k) => v !== other[k])).toBe(true)
-  // The loop closes: one T later is the same frame.
-  const again = lagoonFrame(60, 40, 3_000 + LAGOON_T * 1000, LAGOON_DARK)
-  expect(again.every((v, k) => Math.abs(v - words[k]!) <= (k % 3 === 0 ? 0 : 0x010101))).toBe(true)
-  expect(encodeCells(Uint32Array.of(0x2588, 0xff8800, 0x01000000))).toBe('iCUAAACI/wAAAAAB')
 
-  // A wide pane, many frames: well under the 66 ms between repaints.
+  // The scene fills its grid, sharks and fish in it, and moves.
+  const scene = new OceanScene(60, 16)
+  const text = () => scene.lines().map(l => l.map(r => r.text).join(''))
+  scene.advance(0.05)
+  const a = text()
+  expect(a.length).toBe(16)
+  expect(a.every(l => l.length === 60)).toBe(true)
+  expect(a.join('').replace(/[ ·]/g, '').length).toBeGreaterThan(20)
+  for (let k = 0; k < 10; k++) scene.advance(0.05)
+  expect(text().join('\n')).not.toBe(a.join('\n'))
+  scene.resize(40, 10)
+  expect(text().length).toBe(10)
+
+  // A wide pane: well under the 50 ms between frames.
+  const big = new OceanScene(90, 40)
   const t0 = performance.now()
-  for (let k = 0; k < 20; k++) lagoonFrame(90, 60, k * 66, LAGOON_DARK)
+  for (let k = 0; k < 20; k++) {
+    big.advance(0.05)
+    big.lines()
+  }
   const each = (performance.now() - t0) / 20
-  console.log(`lagoon frame 90x60: ${each.toFixed(2)} ms`)
+  console.log(`ocean frame 90x40: ${each.toFixed(2)} ms, ${big.lines().reduce((n, l) => n + l.length, 0)} runs`)
   expect(each).toBeLessThan(25)
 })
 
