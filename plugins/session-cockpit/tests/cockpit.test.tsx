@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
 import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { LAGOON_DARK, LAGOON_T, encodeCells, lagoonFrame } from '../hooks/lagoon'
+import { petSvg } from '../hooks/rules'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1566,4 +1568,77 @@ test('the Stats tab draws a year of turns and sums a chosen span', async ($, on)
   expect(await ui.find({ type: 'Text', text: /^\/7$/ })).toBeDefined()
   await ui.press({ key: 'stats-all' })
   await ui.unmount()
+})
+
+test('the lagoon paints behind the pane on the terminal, and is cheap to draw', async ($, on) => {
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  // Off by default; Settings · Effects turns it on.
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  await ui.press({ key: 'group-settings' })
+  await ui.press({ key: 'tab-config' })
+  await ui.press({ key: 'fx-lagoon' })
+  await ui.unmount()
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const raster = await ui.find({ type: 'Raster' })
+  expect(raster).toBeDefined()
+  await ui.unmount()
+  // Surfaces without a Raster draw the pane as before.
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await desk.find({ type: 'Raster' })).toBeUndefined()
+  await desk.unmount()
+
+  // Every cell holds one printable width-1 character and two colors.
+  const words = lagoonFrame(60, 40, 3_000, LAGOON_DARK)
+  expect(words.length).toBe(60 * 40 * 3)
+  for (let k = 0; k < words.length; k += 3) {
+    const ch = words[k]!
+    expect(ch >= 32 && ch < 0x10000).toBe(true)
+    expect(words[k + 1]! < 0x1000000 && words[k + 2]! < 0x1000000).toBe(true)
+  }
+  // Something swims: frames a second apart differ.
+  const other = lagoonFrame(60, 40, 4_000, LAGOON_DARK)
+  expect(words.some((v, k) => v !== other[k])).toBe(true)
+  // The loop closes: one T later is the same frame.
+  const again = lagoonFrame(60, 40, 3_000 + LAGOON_T * 1000, LAGOON_DARK)
+  expect(again.every((v, k) => Math.abs(v - words[k]!) <= (k % 3 === 0 ? 0 : 0x010101))).toBe(true)
+  expect(encodeCells(Uint32Array.of(0x2588, 0xff8800, 0x01000000))).toBe('iCUAAACI/wAAAAAB')
+
+  // A wide pane, many frames: well under the 66 ms between repaints.
+  const t0 = performance.now()
+  for (let k = 0; k < 20; k++) lagoonFrame(90, 60, k * 66, LAGOON_DARK)
+  const each = (performance.now() - t0) / 20
+  console.log(`lagoon frame 90x60: ${each.toFixed(2)} ms`)
+  expect(each).toBeLessThan(25)
+})
+
+test('off the terminal the pet is a picture, so its rows meet', async ($, on) => {
+  mock.store(on)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  for (const surface of ['desktop', 'terminal'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'group-pet' })
+    const art = await ui.find({ type: 'Svg' })
+    expect(art === undefined).toBe(surface === 'terminal')
+    await ui.unmount()
+  }
+  // Block glyphs become squares, half blocks half squares, the rest text.
+  const art = petSvg([[{ text: '█▀', color: '#ff0000' }, { text: '♥', color: 'error' }]])
+  expect(art.width).toBe(24)
+  expect(art.height).toBe(16)
+  expect(art.source).toContain('<rect x="0" y="0" width="8" height="16" fill="#ff0000"/>')
+  expect(art.source).toContain('<rect x="8" y="0" width="4" height="8" fill="#ff0000"/>')
+  expect(art.source).toContain('fill="#ff6b80"')
 })
