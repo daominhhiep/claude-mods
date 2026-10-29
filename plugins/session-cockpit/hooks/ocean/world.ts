@@ -2,6 +2,8 @@
 // Copyright (c) 2026 drewdi. The license text is in THIRD_PARTY_NOTICES.md in this plugin.
 // Kept as written upstream; the plugin's stricter type checks do not apply here.
 // @ts-nocheck
+// Changed for session-cockpit: options for the shark's length and for an open
+// centre (no headline to keep clear), and sharks turn back before they leave.
 /**
  * Artificial-life sim for the hero: tiny fish schools and the sharks that hunt them.
  *
@@ -116,6 +118,7 @@ export class World {
   constructor(
     private sharkSpecs: SharkSpec[] = DEFAULT_SHARKS,
     private fishCount?: number,
+    private options: { sharkLength?: (width: number, height: number) => number; keepCentreClear?: boolean; staysInFrame?: boolean } = {},
   ) {}
 
   resize(width: number, height: number, cellW: number, cellH: number) {
@@ -141,7 +144,7 @@ export class World {
   seed() {
     const { width: W, height: H } = this;
     const minSide = Math.min(W, H);
-    const baseLength = clamp(minSide * 0.44, 170, 430);
+    const baseLength = this.options.sharkLength?.(W, H) ?? clamp(minSide * 0.44, 170, 430);
     const sharkCount = this.sharkSpecs.length;
 
     this.sharks = [];
@@ -532,7 +535,7 @@ export class World {
       const ex = (hx - cxW) / (W * 0.3);
       const ey = (hy - cyW) / (H * 0.16);
       const e2 = ex * ex + ey * ey;
-      if (e2 < 1) {
+      if (this.options.keepCentreClear !== false && e2 < 1) {
         const e = Math.sqrt(e2) || 1e-3;
         const w = (1 - e) * (hunting ? 1 : 2.5);
         dx += (ex / e) * w;
@@ -542,8 +545,9 @@ export class World {
       // Turn back once the snout leaves the frame, so bodies dip off-screen
       // now and then but the sharks never wander away for good.
       const over = Math.max(-hx, hx - W, -hy, hy - H);
-      if (over > -L * 0.05) {
-        const w = clamp((over + L * 0.05) / (L * 0.35), 0, 1) * 3.5;
+      const margin = this.options.staysInFrame ? L * 0.3 : L * 0.05;
+      if (over > -margin) {
+        const w = clamp((over + margin) / (L * 0.35), 0, 1) * (this.options.staysInFrame ? 6 : 3.5);
         const toX = cxW - hx;
         const toY = cyW - hy;
         const d = Math.hypot(toX, toY) || 1;

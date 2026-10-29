@@ -10,8 +10,8 @@ type State = { scene: OceanScene; frame: number }
 const OceanView: ClientModule<Props, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   // Capped, so the drawn tree stays well inside a Client's bounds.
-  const cols = Math.min(110, surface.columns)
-  const rows = Math.min(45, surface.rows)
+  const cols = Math.min(100, surface.columns)
+  const rows = Math.min(40, surface.rows)
   // Too little room for a shark to turn: draw nothing.
   if (cols < 24 || rows < 5) return <Box flexGrow={1} />
   let state = surface.state
