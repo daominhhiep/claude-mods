@@ -195,6 +195,7 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     tabs: [
       { id: 'pet', label: 'Pet' },
       { id: 'play', label: 'Play' },
+      { id: 'ocean', label: 'Ocean' },
       { id: 'stats', label: 'Stats' },
       { id: 'evolution', label: 'Evolution' },
       { id: 'skins', label: 'Skins' },
@@ -1624,7 +1625,7 @@ export const register: Register = (on, options) => {
                 const art = petSvg(
                   [0, 1].map(r => (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) }))),
                 )
-                return <BandSvg key="pet-yard-art" source={art.source} alt="The pet" width={art.width} height={art.height} />
+                return <BandSvg key="pet-yard-art" source={art.source} alt="The pet" width={art.width} />
               })()
             ) : isPetAway || Client === undefined ? (
               <Box flexDirection="column">
@@ -1898,8 +1899,9 @@ export const register: Register = (on, options) => {
     const Svg = 'Svg' in els && e.surface !== 'terminal' ? els.Svg : undefined
     const petPicture = (rows: { text: string; color: string }[][], key: string, tintOf: (c: string) => string) => {
       if (Svg === undefined) return null
+      // Width alone: the height follows the picture's own shape, never squeezed to a row.
       const art = petSvg(rows.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : tintOf(x.color) }))))
-      return <Svg key={key} source={art.source} alt="The pet" width={art.width} height={art.height} />
+      return <Svg key={key} source={art.source} alt="The pet" width={art.width} />
     }
     const paneTheme = await read($, theme)
     const paint = painter(paneTheme)
@@ -2614,6 +2616,7 @@ export const register: Register = (on, options) => {
     } else if (
       current === 'pet' ||
       current === 'play' ||
+      current === 'ocean' ||
       current === 'stats' ||
       current === 'evolution' ||
       current === 'skins' ||
@@ -3108,7 +3111,9 @@ export const register: Register = (on, options) => {
         </Box>
       )
       body =
-        current === 'play'
+        current === 'ocean'
+          ? null
+          : current === 'play'
           ? playView
           : current === 'stats'
           ? statsView
@@ -3129,9 +3134,8 @@ export const register: Register = (on, options) => {
           $.ui.toast('Changed for this session only; it could not be saved for the next one.')
         }
       }
-      // Light mode is a setting, not an effect, and the ocean is on trial:
-      // Turn all leaves both as they are.
-      const shows = EFFECTS.filter(x => x.id !== 'light' && x.id !== 'ocean')
+      // Light mode is a setting, not an effect: Turn all leaves it as it is.
+      const shows = EFFECTS.filter(x => x.id !== 'light')
       const allOn = shows.every(x => fx[x.id])
       body = (
         <Box flexDirection="column" gap={1}>
@@ -3343,18 +3347,29 @@ export const register: Register = (on, options) => {
             )
     }
 
-    // The ocean takes the room under the content, never the content's own:
-    // it runs in a Client on its own clock, so the pane does not redraw for it.
-    const fxPane = await read($, effects)
-    if (Client !== undefined && fxPane.ocean) {
+    // Pet · Ocean: the ocean fills the pane under the tabs, with nothing to
+    // scroll past. It runs in a Client on its own clock, so the pane does not
+    // redraw for it.
+    if (current === 'ocean') {
+      const light = (await read($, effects)).light
       return (
         <Box flexDirection="column" minHeight={e.props.scroll.bodyRows}>
-          <Box flexDirection="column" gap={1} flexShrink={0}>
+          <Box flexDirection="column" flexShrink={0}>
             {tabs}
-            {body}
           </Box>
-          <Box flexDirection="column" flexGrow={1} marginTop={1}>
-            <Client key="ocean" module="./ocean-view.tsx" width="100%" flexGrow={1} props={{ fps: fxPane.light ? 10 : 20 }} />
+          {Client === undefined ? (
+            <Text color={paint('inactive')} wrap="wrap">
+              The ocean swims in the terminal and the desktop app.
+            </Text>
+          ) : (
+            <Box flexDirection="column" flexGrow={1} marginTop={1}>
+              <Client key="ocean" module="./ocean-view.tsx" width="100%" flexGrow={1} props={{ fps: light ? 10 : 20 }} />
+            </Box>
+          )}
+          <Box flexShrink={0}>
+            <Text color={paint('inactive')} wrap="truncate-end">
+              Click to splash · the fish shy from the pointer
+            </Text>
           </Box>
         </Box>
       )

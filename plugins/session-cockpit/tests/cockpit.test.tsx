@@ -1570,7 +1570,7 @@ test('the Stats tab draws a year of turns and sums a chosen span', async ($, on)
   await ui.unmount()
 })
 
-test('the ocean swims under the pane, and is cheap to draw', async ($, on) => {
+test('the ocean swims in its own tab, in blue water, and is cheap to draw', async ($, on) => {
   mock.store(on)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
@@ -1579,18 +1579,25 @@ test('the ocean swims under the pane, and is cheap to draw', async ($, on) => {
   on('clock.every', () => ({ value: {} as never }))
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
 
-  // Off by default; Settings · Effects turns it on.
-  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(JSON.stringify(await ui.drawn())).not.toContain('ocean-view')
-  await ui.press({ key: 'group-settings' })
-  await ui.press({ key: 'tab-config' })
-  await ui.press({ key: 'fx-ocean' })
-  await ui.unmount()
+  // Pet · Ocean holds it; other tabs do not.
   for (const surface of ['terminal', 'desktop'] as const) {
-    ui = await $.ui.mount({ ...PANE, surface })
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(JSON.stringify(await ui.drawn())).not.toContain('ocean-view')
+    await ui.press({ key: 'group-pet' })
+    await ui.press({ key: 'tab-ocean' })
     expect(JSON.stringify(await ui.drawn())).toContain('ocean-view')
+    await ui.press({ key: 'tab-pet' })
     await ui.unmount()
   }
+
+  // Every cell sits on water: blue, lighter at the top than at the bottom.
+  const water = new OceanScene(40, 12)
+  water.advance(0.05)
+  const backs = water.lines().map(l => l.map(r => r.back))
+  expect(backs.every(row => row.every(b => b !== ''))).toBe(true)
+  const blue = (h: string) => parseInt(h.slice(5, 7), 16) > parseInt(h.slice(1, 3), 16)
+  expect(blue(backs[0]![0]!) && blue(backs[11]![0]!)).toBe(true)
+  expect(parseInt(backs[0]![0]!.slice(1), 16)).toBeGreaterThan(parseInt(backs[11]![0]!.slice(1), 16))
 
   // The scene fills its grid, sharks and fish in it, and moves.
   const scene = new OceanScene(60, 16)
@@ -1635,8 +1642,8 @@ test('off the terminal the pet is a picture, so its rows meet', async ($, on) =>
   // Block glyphs become squares, half blocks half squares, the rest text.
   const art = petSvg([[{ text: '█▀', color: '#ff0000' }, { text: '♥', color: 'error' }]])
   expect(art.width).toBe(24)
-  expect(art.height).toBe(16)
-  expect(art.source).toContain('<rect x="0" y="0" width="8" height="16" fill="#ff0000"/>')
-  expect(art.source).toContain('<rect x="8" y="0" width="4" height="8" fill="#ff0000"/>')
+  expect(art.height).toBe(17)
+  expect(art.source).toContain('<rect x="0" y="0" width="8" height="17" fill="#ff0000"/>')
+  expect(art.source).toContain('<rect x="8" y="0" width="4" height="8.5" fill="#ff0000"/>')
   expect(art.source).toContain('fill="#ff6b80"')
 })
