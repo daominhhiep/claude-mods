@@ -10,13 +10,16 @@ const MAX_STEPS = 6
 /** A run of cells drawn alike: its text, ink and background as #rrggbb, '' for the terminal's own. */
 export type OceanRun = { text: string; color: string; back: string }
 
-const SHARKS: SharkSpec[] = [
-  { kind: 'classic', size: 1 },
-  { kind: 'hammerhead', size: 0.82 },
-]
+// One big shark: in a pane only fifty or so columns wide, a smaller one
+// is a smudge of glyphs rather than a shark.
+const SHARKS: SharkSpec[] = [{ kind: 'classic', size: 1 }]
+// Three quarters of the pane's width, and never longer than its height allows.
+const sharkLength = (w: number, h: number) => Math.max(120, Math.min(w * 0.75, h * 1.6))
 
-// Colors snapped to steps of 8, so neighbouring cells share runs and the tree stays small.
+// Ink snapped to steps of 8, so neighbouring glyphs share runs and the tree
+// stays small; the water keeps its exact color, one per row, with no bands.
 const hex = (v: number) => (v < 0 ? '' : `#${((v & 0xf8f8f8) | 0x1000000).toString(16).slice(1)}`)
+const exact = (v: number) => (v < 0 ? '' : `#${(v | 0x1000000).toString(16).slice(1)}`)
 
 export class OceanScene {
   private world: World
@@ -27,7 +30,11 @@ export class OceanScene {
   rows = 0
 
   constructor(cols: number, rows: number) {
-    this.world = new World(SHARKS, clamp(Math.round((cols * rows) / 14), 18, 120))
+    this.world = new World(SHARKS, clamp(Math.round((cols * rows) / 14), 18, 120), {
+      sharkLength,
+      keepCentreClear: false,
+      staysInFrame: true,
+    })
     this.renderer = new AsciiRenderer(this.ctx)
     this.resize(cols, rows)
   }
@@ -84,7 +91,7 @@ export class OceanScene {
         const i = r * cols + c
         const ch = String.fromCodePoint(chars[i] ?? 32)
         const color = ch === ' ' ? '' : hex(ink[i] ?? -1)
-        const bg = hex(back[i] ?? -1)
+        const bg = exact(back[i] ?? -1)
         const last = line[line.length - 1]
         if (last !== undefined && last.color === color && last.back === bg) last.text += ch
         else line.push({ text: ch, color, back: bg })
