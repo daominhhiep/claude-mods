@@ -54,6 +54,7 @@ export class OceanScene {
       steps++
     }
     if (steps === MAX_STEPS) this.acc = 0
+    this.ctx.time = this.world.time
     this.renderer.render(this.world, dt)
   }
 

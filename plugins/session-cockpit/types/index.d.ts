@@ -1,4 +1,4 @@
-export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'stats' | 'evolution' | 'skins' | 'trophies' | 'play'
+export type CockpitTab = 'weather' | 'agents' | 'sessions' | 'blast' | 'replay' | 'log' | 'theme' | 'config' | 'pet' | 'stats' | 'evolution' | 'skins' | 'trophies' | 'play' | 'ocean'
 
 export type PetLifeStage = 'egg' | 'baby' | 'kid' | 'adult' | 'elder'
 
@@ -178,7 +178,6 @@ declare module 'claude-code' {
         pet: boolean
         weather: boolean
         light: boolean
-        ocean: boolean
       }
       petLife: PetLife
       burst: { at: number; text: string } | null

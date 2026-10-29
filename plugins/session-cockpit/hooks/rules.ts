@@ -814,7 +814,7 @@ export function headsUp(text: string): string | null {
 
 // ── Effects ──────────────────────────────────────────────────────────
 
-export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather' | 'light' | 'ocean'
+export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather' | 'light'
 export type Effects = Record<EffectId, boolean>
 
 /** Each effect Settings · Effects turns on and off, in the order it lists them. */
@@ -827,7 +827,6 @@ export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
   { id: 'ring', label: 'Light around the frame', hint: 'A light circles the band: quick while Claude works, slow at rest.' },
   { id: 'pet', label: 'Claude pet', hint: 'A little Claude lives in the band: it runs while Claude works, cheers when a turn ends and naps when the cache goes cold.' },
   { id: 'weather', label: 'Theme weather', hint: 'Snow, petals, rain or stars drift above the band in themes that have them. Turn off if the terminal feels slow.' },
-  { id: 'ocean', label: 'Ocean under the pane (beta)', hint: 'Sharks hunt schools of fish in the empty space below each tab. A click splashes. Turn off if the terminal feels slow.' },
   { id: 'light', label: 'Light mode', hint: 'Half the frames while Claude works: less work for the terminal, a little less smooth.' },
 ]
 
@@ -841,7 +840,6 @@ export const DEFAULT_EFFECTS: Effects = {
   pet: true,
   weather: true,
   light: false,
-  ocean: false,
 }
 
 /** Saved effects read back, any missing or broken entry at its default. */
@@ -1684,7 +1682,6 @@ export const PET_SKINS: {
   { id: 'rose', name: 'Rose', color: '#f48fb1', unlock: null },
   { id: 'leaf', name: 'Leaf', color: '#9ccc65', unlock: null },
   { id: 'mint', name: 'Mint', color: 'success', unlock: 'streak-3' },
-  { id: 'ocean', name: 'Ocean', color: 'suggestion', unlock: 'grown' },
   { id: 'grape', name: 'Grape', color: 'permission', unlock: 'weekend' },
   { id: 'midnight', name: 'Midnight', color: 'inactive', unlock: 'night-owl' },
   { id: 'ember', name: 'Ember', color: 'error', unlock: 'busy-day' },
@@ -2066,8 +2063,8 @@ export function hexOf(color: string): string {
   return color.startsWith('#') || color.startsWith('rgb') ? color : (KEY_HEX[color] ?? '#cccccc')
 }
 
-/** Cell size of the picture, in CSS pixels: as tall as two wide, like a terminal's. */
-export const PET_CELL = { w: 8, h: 16 }
+/** Cell size of the picture, in CSS pixels: a terminal cell's shape (16 by 34 on a Mac). */
+export const PET_CELL = { w: 8, h: 17 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -2101,7 +2098,7 @@ export function petSvg(rows: { text: string; color: string }[][], colorOf: (c: s
           continue
         }
         parts.push(
-          `<text x="${x + w / 2}" y="${y + h * 0.78}" fill="${fill}" font-size="${h * 0.8}" font-family="monospace" text-anchor="middle">${esc(ch)}</text>`,
+          `<text x="${x + w / 2}" y="${y + h * 0.75}" fill="${fill}" font-size="${h * 0.75}" font-family="monospace" text-anchor="middle">${esc(ch)}</text>`,
         )
       }
     }
@@ -2109,7 +2106,7 @@ export function petSvg(rows: { text: string; color: string }[][], colorOf: (c: s
   const width = cols * w
   const height = rows.length * h
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" shape-rendering="crispEdges">${parts.join('')}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges">${parts.join('')}</svg>`,
     width,
     height,
   }

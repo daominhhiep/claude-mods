@@ -10,6 +10,15 @@ export const CELL_H = 17;
  * the cell's character and ink, blended over what is there; a cell-sized fill
  * sets its background; a small fill (a twinkling dot) becomes a dot.
  */
+/** The water at the top of the pane and at the bottom, 0xRRGGBB. */
+export const WATER_TOP = 0x0f5670;
+export const WATER_DEEP = 0x062636;
+
+function mixRgb(a: number, b: number, k: number) {
+  const ch = (shift: number) => Math.round(((a >> shift) & 255) * (1 - k) + ((b >> shift) & 255) * k);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
 export class CellCtx {
   cols = 0;
   rows = 0;
@@ -22,6 +31,8 @@ export class CellCtx {
   back = new Int32Array(0);
   private rgb = 0;
   private alpha = 1;
+  /** Seconds, for the light moving over the water. */
+  time = 0;
 
   size(cols: number, rows: number, cw: number, ch: number) {
     this.cols = cols;
@@ -35,10 +46,31 @@ export class CellCtx {
     this.clear();
   }
 
+  /**
+   * Fills every cell with water: lighter at the top, deeper below, a row at a
+   * time so a row stays one run, with a few ripples of light drifting over it.
+   */
   clear() {
-    this.chars.fill(32);
-    this.ink.fill(-1);
-    this.back.fill(-1);
+    const { cols, rows, time: t } = this;
+    for (let r = 0; r < rows; r++) {
+      const k = rows <= 1 ? 0 : r / (rows - 1);
+      const sea = mixRgb(WATER_TOP, WATER_DEEP, k);
+      const glint = mixRgb(sea, 0x9fe3f0, 0.35);
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        this.back[i] = sea;
+        const v =
+          Math.sin(c * 0.33 + t * 0.9 + 1.4 * Math.sin(r * 0.55 - t * 0.6)) +
+          Math.sin(-c * 0.21 + r * 0.73 - t * 1.1);
+        if (v > 1.72) {
+          this.chars[i] = v > 1.86 ? 0x7e : 0xb7;
+          this.ink[i] = glint;
+        } else {
+          this.chars[i] = 32;
+          this.ink[i] = -1;
+        }
+      }
+    }
   }
 
   set fillStyle(style: string) {
@@ -67,7 +99,7 @@ export class CellCtx {
   private blend(under: number) {
     const a = this.alpha;
     if (a >= 0.999) return this.rgb;
-    const u = under < 0 ? 0x0b0d12 : under;
+    const u = under < 0 ? WATER_DEEP : under;
     const mix = (shift: number) =>
       Math.round(((this.rgb >> shift) & 255) * a + ((u >> shift) & 255) * (1 - a));
     return (mix(16) << 16) | (mix(8) << 8) | mix(0);
@@ -88,7 +120,7 @@ export class CellCtx {
     }
     // A dot of light in the water.
     const i = this.cell(x, y);
-    if (i < 0 || this.chars[i] !== 32) return;
+    if (i < 0 || (this.chars[i] !== 32 && this.chars[i] !== 0xb7 && this.chars[i] !== 0x7e)) return;
     this.chars[i] = 0xb7;
     this.ink[i] = this.blend(-1);
   }
