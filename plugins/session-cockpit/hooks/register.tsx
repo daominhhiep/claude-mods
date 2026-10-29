@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionUsage } from 'claude-code'
 
 import type { PetFeeling, PetRange } from './rules'
+import { LAGOON_DARK, LAGOON_LIGHT, encodeCells, lagoonFrame } from './lagoon'
 
 import type {
   AgentCost,
@@ -54,6 +55,7 @@ import {
   levelOf,
   lineDiff,
   money,
+  petSvg,
   relativeTo,
   BURST_MS,
   DEFAULT_EFFECTS,
@@ -170,6 +172,11 @@ const TYPE_MAX_MS = 1_200
 const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
 const PET_KEY = 'petLife'
+// The lagoon behind the pane: its grid as last drawn there, repainted on its
+// own clock with $.ui.blit so the pane itself never redraws for it.
+const LAGOON_MS = 66
+let lagoonMount: { columns: number; rows: number; isLight: boolean } | null = null
+let isLagoonPainting = false
 const WARN_DAYS = 7
 
 // Five groups across the top; a group of several shows its own tabs below.
@@ -648,6 +655,24 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(PR_POLL_MS, () => {
       void refreshPr($)
+    })
+    $.clock.every(LAGOON_MS, () => {
+      const at = lagoonMount
+      if (at === null || isLagoonPainting) return
+      isLagoonPainting = true
+      void (async () => {
+        try {
+          const now = await $.clock.now()
+          const cells = encodeCells(lagoonFrame(at.columns, at.rows, now, at.isLight ? LAGOON_LIGHT : LAGOON_DARK))
+          const done = await $.ui.blit({ requestId: PANE, key: 'lagoon', cells, columns: at.columns, rows: at.rows })
+          // Not mounted any more (the pane closed, another size): wait for the next draw.
+          if ('deny' in done && lagoonMount === at) lagoonMount = null
+        } catch {
+          if (lagoonMount === at) lagoonMount = null
+        } finally {
+          isLagoonPainting = false
+        }
+      })()
     })
     // Drives the spinners and the cache pulse, only while something moves.
     let beats = 0
@@ -1192,6 +1217,7 @@ export const register: Register = (on, options) => {
     const { Box, Text } = els
     // Only the surfaces that run a Client can tell a click on the pet.
     const Client = 'Client' in els ? els.Client : undefined
+    const BandSvg = 'Svg' in els && e.surface !== 'terminal' ? els.Svg : undefined
     const themeId = await read($, theme)
     const paint = painter(themeId)
     // The theme's own frame, title mark, gauge and what drifts above the band.
@@ -1616,7 +1642,15 @@ export const register: Register = (on, options) => {
             <Box position="absolute" top={0} right={0} display="none" hover={{ scope: 'pet', display: 'flex' }}>
               <Text color={paint('error')}>♥</Text>
             </Box>
-            {isPetAway || Client === undefined ? (
+            {!isPetAway && BandSvg !== undefined ? (
+              (() => {
+                // Off the terminal the rows are spaced apart: the body as a picture.
+                const art = petSvg(
+                  [0, 1].map(r => (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) }))),
+                )
+                return <BandSvg key="pet-yard-art" source={art.source} alt="The pet" width={art.width} height={art.height} />
+              })()
+            ) : isPetAway || Client === undefined ? (
               <Box flexDirection="column">
                 {[0, 1].map(r => (
                   <Text key={`pet-yard-${r}`}>
@@ -1883,6 +1917,14 @@ export const register: Register = (on, options) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button, Code } = els
     const Client = 'Client' in els ? els.Client : undefined
+    // Off the terminal, text rows are spaced apart and the pet's block glyphs
+    // would not meet: draw it as a picture there.
+    const Svg = 'Svg' in els && e.surface !== 'terminal' ? els.Svg : undefined
+    const petPicture = (rows: { text: string; color: string }[][], key: string, tintOf: (c: string) => string) => {
+      if (Svg === undefined) return null
+      const art = petSvg(rows.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : tintOf(x.color) }))))
+      return <Svg key={key} source={art.source} alt="The pet" width={art.width} height={art.height} />
+    }
     const paneTheme = await read($, theme)
     const paint = painter(paneTheme)
     // Boxes take the theme's frame; the title its mark.
@@ -2861,11 +2903,12 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" gap={1}>
           {heading('Skins', `${skinsOwned} of ${PET_SKINS.length}`)}
           <Box flexDirection="column">
-            {sprite.map((row, r) => (
-              <Text key={`skin-look-${r}`}>
-                {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
-              </Text>
-            ))}
+            {petPicture(sprite, 'skin-look', paint) ??
+              sprite.map((row, r) => (
+                <Text key={`skin-look-${r}`}>
+                  {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
+                </Text>
+              ))}
           </Box>
           <Box flexDirection="column">
             {PET_SKINS.map(k => {
@@ -2969,7 +3012,9 @@ export const register: Register = (on, options) => {
             } · level ${st.level}`,
           )}
           <Box flexDirection="column">
-            {Client === undefined ? (
+            {Svg !== undefined ? (
+              petPicture(sprite, 'pet-big', paint)
+            ) : Client === undefined ? (
               sprite.map((row, r) => (
                 <Text key={`pet-big-${r}`}>
                   {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
@@ -3108,8 +3153,9 @@ export const register: Register = (on, options) => {
           $.ui.toast('Changed for this session only; it could not be saved for the next one.')
         }
       }
-      // Light mode is a setting, not an effect: Turn all leaves it as it is.
-      const shows = EFFECTS.filter(x => x.id !== 'light')
+      // Light mode is a setting, not an effect, and the lagoon is on trial:
+      // Turn all leaves both as they are.
+      const shows = EFFECTS.filter(x => x.id !== 'light' && x.id !== 'lagoon')
       const allOn = shows.every(x => fx[x.id])
       body = (
         <Box flexDirection="column" gap={1}>
@@ -3179,11 +3225,12 @@ export const register: Register = (on, options) => {
                   {cells.map(c => (c.color === '' ? c.ch : <Text color={tint(c.color)}>{c.ch}</Text>))}
                 </Text>
               ))}
-          {sprite.map((row, r) => (
-            <Text key={`theme-pet-${r}`}>
-              {row.map(x => (x.color === '' ? x.text : <Text color={tint(x.color)}>{x.text}</Text>))}
-            </Text>
-          ))}
+          {petPicture(sprite, 'theme-pet', tint) ??
+            sprite.map((row, r) => (
+              <Text key={`theme-pet-${r}`}>
+                {row.map(x => (x.color === '' ? x.text : <Text color={tint(x.color)}>{x.text}</Text>))}
+              </Text>
+            ))}
           <Text wrap="truncate-end">
             <Text color={tint('suggestion')} bold>
               42%
@@ -3320,8 +3367,28 @@ export const register: Register = (on, options) => {
             )
     }
 
+    // The lagoon sits first, out of the flow, so the tabs paint over it.
+    const Raster = 'Raster' in els ? els.Raster : undefined
+    const lagoonOn = Raster !== undefined && (await read($, effects)).lagoon
+    let lagoon = null
+    if (lagoonOn && Raster !== undefined) {
+      const columns = Math.max(1, Math.min(512, e.props.bodyColumns))
+      const rows = Math.max(1, Math.min(256, e.props.scroll.bodyRows))
+      const isLight = THEMES.find(t => t.id === paneTheme)?.isLight === true
+      lagoonMount = { columns, rows, isLight }
+      const cells = encodeCells(lagoonFrame(columns, rows, await $.clock.now(), isLight ? LAGOON_LIGHT : LAGOON_DARK))
+      lagoon = (
+        <Box position="absolute" top={0} left={0}>
+          <Raster key="lagoon" columns={columns} rows={rows} cells={cells} />
+        </Box>
+      )
+    } else {
+      lagoonMount = null
+    }
+
     return (
       <Box flexDirection="column" gap={1}>
+        {lagoon}
         {tabs}
         {body}
       </Box>

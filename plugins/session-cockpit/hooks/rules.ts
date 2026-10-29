@@ -814,7 +814,7 @@ export function headsUp(text: string): string | null {
 
 // ── Effects ──────────────────────────────────────────────────────────
 
-export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather' | 'light'
+export type EffectId = 'fireworks' | 'flash' | 'wave' | 'breathe' | 'typing' | 'ring' | 'pet' | 'weather' | 'light' | 'lagoon'
 export type Effects = Record<EffectId, boolean>
 
 /** Each effect Settings · Effects turns on and off, in the order it lists them. */
@@ -827,6 +827,7 @@ export const EFFECTS: { id: EffectId; label: string; hint: string }[] = [
   { id: 'ring', label: 'Light around the frame', hint: 'A light circles the band: quick while Claude works, slow at rest.' },
   { id: 'pet', label: 'Claude pet', hint: 'A little Claude lives in the band: it runs while Claude works, cheers when a turn ends and naps when the cache goes cold.' },
   { id: 'weather', label: 'Theme weather', hint: 'Snow, petals, rain or stars drift above the band in themes that have them. Turn off if the terminal feels slow.' },
+  { id: 'lagoon', label: 'Lagoon behind the pane (beta)', hint: 'Turtles, a manta and fish swim behind this pane, dimmed so the text reads. Terminal only. Turn off if text flickers or the terminal feels slow.' },
   { id: 'light', label: 'Light mode', hint: 'Half the frames while Claude works: less work for the terminal, a little less smooth.' },
 ]
 
@@ -840,6 +841,7 @@ export const DEFAULT_EFFECTS: Effects = {
   pet: true,
   weather: true,
   light: false,
+  lagoon: false,
 }
 
 /** Saved effects read back, any missing or broken entry at its default. */
@@ -2039,4 +2041,76 @@ export function favoriteHour(life: PetLife): number | null {
 export function shortDay(key: string): string {
   const [, m, d] = key.split('-')
   return `${MONTHS[Number(m) - 1] ?? ''} ${Number(d)}`
+}
+
+// ── The pet as a picture, for surfaces that draw text in a proportional box ──
+
+// Where each block glyph is filled, as quadrants [top-left, top-right,
+// bottom-left, bottom-right]; shades fill all four at an opacity.
+const QUADS: Record<string, [number, number, number, number, number?]> = {
+  '█': [1, 1, 1, 1], '▀': [1, 1, 0, 0], '▄': [0, 0, 1, 1], '▌': [1, 0, 1, 0], '▐': [0, 1, 0, 1],
+  '▘': [1, 0, 0, 0], '▝': [0, 1, 0, 0], '▖': [0, 0, 1, 0], '▗': [0, 0, 0, 1],
+  '▚': [1, 0, 0, 1], '▞': [0, 1, 1, 0], '▙': [1, 0, 1, 1], '▟': [0, 1, 1, 1], '▛': [1, 1, 1, 0], '▜': [1, 1, 0, 1],
+  '▓': [1, 1, 1, 1, 0.75], '▒': [1, 1, 1, 1, 0.5],
+}
+
+// Claude Code's dark theme, for the theme keys a picture cannot name.
+const KEY_HEX: Record<string, string> = {
+  claude: '#d97757', text: '#ffffff', inverseText: '#000000', inactive: '#999999', subtle: '#505050',
+  suggestion: '#b1b9f9', remember: '#b1b9f9', permission: '#b1b9f9', success: '#4eba65', error: '#ff6b80',
+  warning: '#ffc107', merged: '#af87ff', planMode: '#48968c', autoAccept: '#af87ff', promptBorder: '#888888',
+}
+
+/** A color a picture can use: hex and names pass, a theme key turns into its dark-theme hex. */
+export function hexOf(color: string): string {
+  return color.startsWith('#') || color.startsWith('rgb') ? color : (KEY_HEX[color] ?? '#cccccc')
+}
+
+/** Cell size of the picture, in CSS pixels: as tall as two wide, like a terminal's. */
+export const PET_CELL = { w: 8, h: 16 }
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/**
+ * The pet's rows as an SVG: block glyphs as filled squares, any other glyph
+ * as text, so it keeps its shape where a surface spaces text rows apart.
+ */
+export function petSvg(rows: { text: string; color: string }[][], colorOf: (c: string) => string = hexOf): { source: string; width: number; height: number } {
+  const { w, h } = PET_CELL
+  const cols = Math.max(1, ...rows.map(r => r.reduce((n, p) => n + Array.from(p.text).length, 0)))
+  const parts: string[] = []
+  rows.forEach((row, j) => {
+    let i = 0
+    for (const p of row) {
+      for (const ch of Array.from(p.text)) {
+        const x = i * w
+        const y = j * h
+        i++
+        if (ch === ' ' || p.color === '') continue
+        const fill = colorOf(p.color)
+        const q = QUADS[ch]
+        if (q !== undefined) {
+          const op = q[4] === undefined ? '' : ` fill-opacity="${q[4]}"`
+          const hw = w / 2
+          const hh = h / 2
+          if (q[0] && q[1] && q[2] && q[3]) parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"${op}/>`)
+          else
+            ;[[0, 0], [hw, 0], [0, hh], [hw, hh]].forEach(([dx, dy], k) => {
+              if (q[k]) parts.push(`<rect x="${x + dx!}" y="${y + dy!}" width="${hw}" height="${hh}" fill="${fill}"${op}/>`)
+            })
+          continue
+        }
+        parts.push(
+          `<text x="${x + w / 2}" y="${y + h * 0.78}" fill="${fill}" font-size="${h * 0.8}" font-family="monospace" text-anchor="middle">${esc(ch)}</text>`,
+        )
+      }
+    }
+  })
+  const width = cols * w
+  const height = rows.length * h
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" shape-rendering="crispEdges">${parts.join('')}</svg>`,
+    width,
+    height,
+  }
 }
