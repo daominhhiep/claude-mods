@@ -1386,7 +1386,7 @@ export const register: Register = (on, options) => {
     const lifeStats = petStats(life, now)
     const feeling = showPet ? await feelingOf($, life, now) : 'fine'
     const petRows = isPetAway
-      ? [0, 1, 2].map(() => [{ text: ' '.repeat(yardW), color: '' }])
+      ? [0, 1, 2].map(() => [{ text: ' '.repeat(yardW), color: '', back: undefined as string | undefined }])
       : showPet
       ? pet(
           petMood({
@@ -1622,7 +1622,7 @@ export const register: Register = (on, options) => {
               (() => {
                 // Off the terminal the rows are spaced apart: the body as a picture.
                 const art = petSvg(
-                  [0, 1].map(r => (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) }))),
+                  [0, 1].map(r => (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color), back: p.back === undefined ? '' : paint(p.back) }))),
                 )
                 return <BandSvg key="pet-yard-art" source={art.source} alt="The pet" width={art.width} />
               })()
@@ -1630,7 +1630,7 @@ export const register: Register = (on, options) => {
               <Box flexDirection="column">
                 {[0, 1].map(r => (
                   <Text key={`pet-yard-${r}`}>
-                    {(petRows[r] ?? []).map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}
+                    {(petRows[r] ?? []).map(p => (p.color === '' && p.back === undefined ? p.text : <Text color={p.color === '' ? undefined : paint(p.color)} backgroundColor={p.back === undefined ? undefined : paint(p.back)}>{p.text}</Text>))}
                   </Text>
                 ))}
               </Box>
@@ -1641,7 +1641,7 @@ export const register: Register = (on, options) => {
                 width={yardW}
                 props={{
                   rows: [0, 1].map(r =>
-                    (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color) })),
+                    (petRows[r] ?? []).map(p => ({ text: p.text, color: p.color === '' ? '' : paint(p.color), back: p.back === undefined ? '' : paint(p.back) })),
                   ),
                 }}
               />
@@ -1768,7 +1768,7 @@ export const register: Register = (on, options) => {
         {line}
         {pet(mood, petClock(now), isSweating, chatColumns - 2, petStats(life, now).stage, life.skin, await feelingOf($, life, now), life).map((row, r) => (
           <Box key={`pet-${r}`} height={1} overflow="hidden">
-            <Text>{row.map(p => (p.color === '' ? p.text : <Text color={paint(p.color)}>{p.text}</Text>))}</Text>
+            <Text>{row.map(p => (p.color === '' && p.back === undefined ? p.text : <Text color={p.color === '' ? undefined : paint(p.color)} backgroundColor={p.back === undefined ? undefined : paint(p.back)}>{p.text}</Text>))}</Text>
           </Box>
         ))}
       </Box>
@@ -1896,10 +1896,10 @@ export const register: Register = (on, options) => {
     // Off the terminal, text rows are spaced apart and the pet's block glyphs
     // would not meet: draw it as a picture there.
     const Svg = 'Svg' in els && e.surface !== 'terminal' ? els.Svg : undefined
-    const petPicture = (rows: { text: string; color: string }[][], key: string, tintOf: (c: string) => string) => {
+    const petPicture = (rows: { text: string; color: string; back?: string }[][], key: string, tintOf: (c: string) => string) => {
       if (Svg === undefined) return null
       // Width alone: the height follows the picture's own shape, never squeezed to a row.
-      const art = petSvg(rows.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : tintOf(x.color) }))))
+      const art = petSvg(rows.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : tintOf(x.color), back: x.back === undefined ? undefined : tintOf(x.back) }))))
       return <Svg key={key} source={art.source} alt="The pet" width={art.width} />
     }
     const paneTheme = await read($, theme)
@@ -2883,7 +2883,7 @@ export const register: Register = (on, options) => {
             {petPicture(sprite, 'skin-look', paint) ??
               sprite.map((row, r) => (
                 <Text key={`skin-look-${r}`}>
-                  {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
+                  {row.map(x => (x.color === '' && x.back === undefined ? x.text : <Text color={x.color === '' ? undefined : paint(x.color)} backgroundColor={x.back === undefined ? undefined : paint(x.back)}>{x.text}</Text>))}
                 </Text>
               ))}
           </Box>
@@ -2994,7 +2994,7 @@ export const register: Register = (on, options) => {
             ) : Client === undefined ? (
               sprite.map((row, r) => (
                 <Text key={`pet-big-${r}`}>
-                  {row.map(x => (x.color === '' ? x.text : <Text color={paint(x.color)}>{x.text}</Text>))}
+                  {row.map(x => (x.color === '' && x.back === undefined ? x.text : <Text color={x.color === '' ? undefined : paint(x.color)} backgroundColor={x.back === undefined ? undefined : paint(x.back)}>{x.text}</Text>))}
                 </Text>
               ))
             ) : (
@@ -3002,7 +3002,7 @@ export const register: Register = (on, options) => {
               <Client
                 key="pet-touch-big"
                 module="./pet-touch.tsx"
-                props={{ rows: sprite.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : paint(x.color) }))) }}
+                props={{ rows: sprite.map(row => row.map(x => ({ text: x.text, color: x.color === '' ? '' : paint(x.color), back: x.back === undefined ? '' : paint(x.back) }))) }}
               />
             )}
             <Box flexDirection="row" gap={2}>
@@ -3204,7 +3204,7 @@ export const register: Register = (on, options) => {
           {petPicture(sprite, 'theme-pet', tint) ??
             sprite.map((row, r) => (
               <Text key={`theme-pet-${r}`}>
-                {row.map(x => (x.color === '' ? x.text : <Text color={tint(x.color)}>{x.text}</Text>))}
+                {row.map(x => (x.color === '' && x.back === undefined ? x.text : <Text color={x.color === '' ? undefined : tint(x.color)} backgroundColor={x.back === undefined ? undefined : tint(x.back)}>{x.text}</Text>))}
               </Text>
             ))}
           <Text wrap="truncate-end">
