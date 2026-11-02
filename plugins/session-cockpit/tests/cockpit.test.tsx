@@ -3,6 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
 import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
 import { petSvg } from '../hooks/rules'
+import { PET_ART } from '../hooks/pet-art'
 
 const PANE = {
   plugin: 'session-cockpit',
@@ -1591,4 +1592,25 @@ test('off the terminal the pet is a picture, so its rows meet', async ($, on) =>
   expect(art.source).toContain('<rect x="0" y="0" width="8" height="17" fill="#ff0000"/>')
   expect(art.source).toContain('<rect x="8" y="0" width="4" height="8.5" fill="#ff0000"/>')
   expect(art.source).toContain('fill="#ff6b80"')
+})
+
+test('pets other than Clawd are pixel art: shaded, with eyes that show and blink', async () => {
+  for (const id of Object.keys(PET_ART)) {
+    for (const stage of ['baby', 'adult'] as const) {
+      const open = pet('idle', 1500, false, 12, stage, 'classic', 'fine', { species: id })
+      const shut = pet('idle', 0, false, 12, stage, 'classic', 'fine', { species: id })
+      const eyes = (rows: typeof open) => rows.flat().filter(r => r.back === PET_ART[id]!.palette.K || r.color === PET_ART[id]!.palette.K).length
+      // Panda's eyes are its patches' light dots; every other pet has dark eyes.
+      if (id !== 'panda') expect(eyes(open)).toBeGreaterThan(0)
+      if (id !== 'panda') expect(eyes(shut)).toBe(0)
+      // Every row stays the yard's width.
+      for (const row of open) expect(row.reduce((n, r) => n + Array.from(r.text).length, 0)).toBe(16)
+    }
+  }
+  // Another skin paints the body; the classic one keeps the species' colors.
+  const rose = pet('idle', 1500, false, 12, 'adult', 'rose', 'fine', { species: 'fox' }).flat()
+  expect(rose.some(r => r.color === '#f48fb1')).toBe(true)
+  expect(rose.some(r => r.color === PET_ART.fox!.palette.B)).toBe(false)
+  // Clawd keeps its own sprite.
+  expect(pet('idle', 1500, false, 12, 'adult', 'classic', 'fine', { species: 'clawd' }).flat().some(r => r.back !== undefined)).toBe(false)
 })

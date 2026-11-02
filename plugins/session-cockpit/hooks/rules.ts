@@ -1,3 +1,4 @@
+import { PET_ART, artCells, artPixels } from './pet-art'
 import type { PetLife, PetLifeStage } from '../types'
 
 // Pure helpers: destructive-command detection, weather levels, line diffs.
@@ -1222,13 +1223,13 @@ export function pet(
   skin: string = 'classic',
   feeling: PetFeeling = 'fine',
   look: { species?: string | null; path?: string | null; accessory?: string | null } = {},
-): { text: string; color: string }[][] {
+): { text: string; color: string; back?: string }[][] {
   let mood = shownMood
   const w = Math.max(PET_WIDTH, Math.floor(width))
-  const grid = Array.from({ length: 3 }, () => Array.from({ length: w }, () => ({ ch: ' ', color: '' })))
-  const put = (row: number, col: number, ch: string, color: string) => {
+  const grid = Array.from({ length: 3 }, () => Array.from({ length: w }, () => ({ ch: ' ', color: '', back: '' })))
+  const put = (row: number, col: number, ch: string, color: string, back = '') => {
     if (row < 0 || row > 2 || col < 0 || col >= w) return
-    grid[row]![col] = { ch, color }
+    grid[row]![col] = { ch, color, back }
   }
   const beat = (ms: number) => Math.floor(now / ms)
   const room = w - PET_BODY - 1
@@ -1318,7 +1319,22 @@ export function pet(
 
   const accent = stage === 'egg' ? undefined : PET_SPECIES.find(k => k.id === look.species)?.sprites?.accent
   const shell = stage === 'egg' ? eggSprite(egg.half, egg.lean, pose.up) : null
-  const lines = shell === null ? spriteOf(stage, look.species ?? null)(pose) : shell.rows
+  // A species drawn as pixels: shaded, with eyes and belly in their own colors.
+  const art = shell === null ? PET_ART[look.species ?? ''] : undefined
+  let artRows: { ch: string; color: string; back: string }[][] | null = null
+  if (art !== undefined) {
+    // At rest it breathes: a pixel up for a beat, held longest at the bottom.
+    const breath = [0, 0, 1, 0][Math.floor((now % 1700) / 425)] ?? 0
+    const lift = pose.up ? (stage === 'baby' ? 2 : 1) : 0
+    const breathe = !pose.up && mood === 'idle' && breath === 1
+    // Its own colors in the classic skin; another skin, or a mood that turns
+    // it red or grey, paints its body and shade in that color.
+    const recolor = body !== 'claude' || worn.id !== 'classic' ? body : null
+    const colorOf = (c: string) =>
+      recolor !== null && (c === art.tint || c === 'S') ? recolor : (art.palette[c] ?? '')
+    artRows = artCells(artPixels(art, stage === 'baby', { shut: pose.shut, lift, apart: pose.apart, breathe }), colorOf)
+  }
+  const lines = artRows !== null ? artRows.map(r => r.map(c => c.ch).join('')) : shell === null ? spriteOf(stage, look.species ?? null)(pose) : shell.rows
   // The face row has its eyes as ▛ then ▜; the body row has them the other way.
   const isFace = (line: string) => line.indexOf('▛') !== -1 && line.indexOf('▜') > line.indexOf('▛')
   // Where its head is: the row with its eyes, or its top row for a face drawn otherwise.
@@ -1327,7 +1343,8 @@ export function pet(
   const eyeCols = eyeRow === -1 ? [] : [lines[eyeRow]!.indexOf('▛'), lines[eyeRow]!.indexOf('▜')]
   // A patterned skin paints some cells of the body in its second color.
   const isPatterned = worn.pattern !== undefined && body === worn.color
-  lines
+  if (artRows !== null) artRows.forEach((r, row) => r.forEach((c, i) => c.ch !== ' ' && put(row, x + i, c.ch, c.color, c.back)))
+  ;(artRows !== null ? [] : lines)
     .map(line => (eyes === null || pose.shut || !isFace(line) ? line : line.replace('▛', eyes[0]).replace('▜', eyes[1])))
     .forEach((line, row) => {
       const color = accent !== undefined && accent.row === row ? accent.color : body
@@ -1377,11 +1394,11 @@ export function pet(
   }
 
   return grid.map(line => {
-    const runs: { text: string; color: string }[] = []
+    const runs: { text: string; color: string; back?: string }[] = []
     for (const c of line) {
       const last = runs[runs.length - 1]
-      if (last !== undefined && last.color === c.color) last.text += c.ch
-      else runs.push({ text: c.ch, color: c.color })
+      if (last !== undefined && last.color === c.color && (last.back ?? '') === c.back) last.text += c.ch
+      else runs.push(c.back === '' ? { text: c.ch, color: c.color } : { text: c.ch, color: c.color, back: c.back })
     }
     return runs
   })
@@ -2072,7 +2089,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * The pet's rows as an SVG: block glyphs as filled squares, any other glyph
  * as text, so it keeps its shape where a surface spaces text rows apart.
  */
-export function petSvg(rows: { text: string; color: string }[][], colorOf: (c: string) => string = hexOf): { source: string; width: number; height: number } {
+export function petSvg(rows: { text: string; color: string; back?: string }[][], colorOf: (c: string) => string = hexOf): { source: string; width: number; height: number } {
   const { w, h } = PET_CELL
   const cols = Math.max(1, ...rows.map(r => r.reduce((n, p) => n + Array.from(p.text).length, 0)))
   const parts: string[] = []
@@ -2083,6 +2100,7 @@ export function petSvg(rows: { text: string; color: string }[][], colorOf: (c: s
         const x = i * w
         const y = j * h
         i++
+        if (p.back !== undefined && p.back !== '') parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${colorOf(p.back)}"/>`)
         if (ch === ' ' || p.color === '') continue
         const fill = colorOf(p.color)
         const q = QUADS[ch]

@@ -3,7 +3,7 @@
 // Button, nothing turns inverse under the pointer or after the click.
 import type { ClientModule } from 'claude-code'
 
-type Props = { rows: { text: string; color: string }[][] }
+type Props = { rows: { text: string; color: string; back?: string }[][] }
 
 const PetTouch: ClientModule<Props> = (props, surface) => {
   const { Box, Text } = surface.elements
@@ -13,7 +13,7 @@ const PetTouch: ClientModule<Props> = (props, surface) => {
   return (
     <Box flexDirection="column">
       {props.rows.map(row => (
-        <Text>{row.map(x => (x.color === '' ? x.text : <Text color={x.color}>{x.text}</Text>))}</Text>
+        <Text>{row.map(x => (x.color === '' && (x.back ?? '') === '' ? x.text : <Text color={x.color === '' ? undefined : x.color} backgroundColor={(x.back ?? '') === '' ? undefined : x.back}>{x.text}</Text>))}</Text>
       ))}
     </Box>
   )
