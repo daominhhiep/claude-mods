@@ -2,7 +2,6 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
 import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
-import { OceanScene } from '../hooks/ocean/scene'
 import { petSvg } from '../hooks/rules'
 
 const PANE = {
@@ -1568,60 +1567,6 @@ test('the Stats tab draws a year of turns and sums a chosen span', async ($, on)
   expect(await ui.find({ type: 'Text', text: /^\/7$/ })).toBeDefined()
   await ui.press({ key: 'stats-all' })
   await ui.unmount()
-})
-
-test('the ocean swims in its own tab, in blue water, and is cheap to draw', async ($, on) => {
-  mock.store(on)
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', (_, e) => ({ value: { command: e.name } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('clock.now', () => ({ value: 1_700_000_000_000 }))
-  on('clock.every', () => ({ value: {} as never }))
-  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-
-  // Pet · Ocean holds it; other tabs do not.
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...PANE, surface })
-    expect(JSON.stringify(await ui.drawn())).not.toContain('ocean-view')
-    await ui.press({ key: 'group-pet' })
-    await ui.press({ key: 'tab-ocean' })
-    expect(JSON.stringify(await ui.drawn())).toContain('ocean-view')
-    await ui.press({ key: 'tab-pet' })
-    await ui.unmount()
-  }
-
-  // Every cell sits on water: blue, lighter at the top than at the bottom.
-  const water = new OceanScene(40, 12)
-  water.advance(0.05)
-  const backs = water.lines().map(l => l.map(r => r.back))
-  expect(backs.every(row => row.every(b => b !== ''))).toBe(true)
-  const blue = (h: string) => parseInt(h.slice(5, 7), 16) > parseInt(h.slice(1, 3), 16)
-  expect(blue(backs[0]![0]!) && blue(backs[11]![0]!)).toBe(true)
-  expect(parseInt(backs[0]![0]!.slice(1), 16)).toBeGreaterThan(parseInt(backs[11]![0]!.slice(1), 16))
-
-  // The scene fills its grid, sharks and fish in it, and moves.
-  const scene = new OceanScene(60, 16)
-  const text = () => scene.lines().map(l => l.map(r => r.text).join(''))
-  scene.advance(0.05)
-  const a = text()
-  expect(a.length).toBe(16)
-  expect(a.every(l => l.length === 60)).toBe(true)
-  expect(a.join('').replace(/[ ·]/g, '').length).toBeGreaterThan(20)
-  for (let k = 0; k < 10; k++) scene.advance(0.05)
-  expect(text().join('\n')).not.toBe(a.join('\n'))
-  scene.resize(40, 10)
-  expect(text().length).toBe(10)
-
-  // A wide pane: well under the 50 ms between frames.
-  const big = new OceanScene(90, 40)
-  const t0 = performance.now()
-  for (let k = 0; k < 20; k++) {
-    big.advance(0.05)
-    big.lines()
-  }
-  const each = (performance.now() - t0) / 20
-  console.log(`ocean frame 90x40: ${each.toFixed(2)} ms, ${big.lines().reduce((n, l) => n + l.length, 0)} runs`)
-  expect(each).toBeLessThan(25)
 })
 
 test('off the terminal the pet is a picture, so its rows meet', async ($, on) => {

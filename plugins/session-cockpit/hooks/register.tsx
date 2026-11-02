@@ -195,7 +195,6 @@ const GROUPS: { id: string; label: string; icon: string; tabs: { id: CockpitTab;
     tabs: [
       { id: 'pet', label: 'Pet' },
       { id: 'play', label: 'Play' },
-      { id: 'ocean', label: 'Ocean' },
       { id: 'stats', label: 'Stats' },
       { id: 'evolution', label: 'Evolution' },
       { id: 'skins', label: 'Skins' },
@@ -2616,7 +2615,6 @@ export const register: Register = (on, options) => {
     } else if (
       current === 'pet' ||
       current === 'play' ||
-      current === 'ocean' ||
       current === 'stats' ||
       current === 'evolution' ||
       current === 'skins' ||
@@ -3111,9 +3109,7 @@ export const register: Register = (on, options) => {
         </Box>
       )
       body =
-        current === 'ocean'
-          ? null
-          : current === 'play'
+        current === 'play'
           ? playView
           : current === 'stats'
           ? statsView
@@ -3347,33 +3343,6 @@ export const register: Register = (on, options) => {
             )
     }
 
-    // Pet · Ocean: the ocean fills the pane under the tabs, with nothing to
-    // scroll past. It runs in a Client on its own clock, so the pane does not
-    // redraw for it.
-    if (current === 'ocean') {
-      const light = (await read($, effects)).light
-      return (
-        <Box flexDirection="column" minHeight={e.props.scroll.bodyRows}>
-          <Box flexDirection="column" flexShrink={0}>
-            {tabs}
-          </Box>
-          {Client === undefined ? (
-            <Text color={paint('inactive')} wrap="wrap">
-              The ocean swims in the terminal and the desktop app.
-            </Text>
-          ) : (
-            <Box flexDirection="column" flexGrow={1} marginTop={1}>
-              <Client key="ocean" module="./ocean-view.tsx" width="100%" flexGrow={1} props={{ fps: light ? 10 : 20 }} />
-            </Box>
-          )}
-          <Box flexShrink={0}>
-            <Text color={paint('inactive')} wrap="truncate-end">
-              Click to splash · the fish shy from the pointer
-            </Text>
-          </Box>
-        </Box>
-      )
-    }
     return (
       <Box flexDirection="column" gap={1}>
         {tabs}
