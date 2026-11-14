@@ -1,7 +1,7 @@
 {
   "name": "session-cockpit",
   "displayName": "Session Cockpit",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Side pane and prompt band: context, cost and cache clock, budget guard, PR/CI status, live subagent tree, destructive-command guard, diff replay, activity log",
   "author": {
     "name": "daominhhiep",
@@ -35,6 +35,12 @@
         "claude"
       ],
       "default": "cockpit"
+    },
+    "guardSkip": {
+      "type": "string",
+      "title": "Commands the guard lets through",
+      "description": "A regular expression. A Bash command that matches it is never held by the destructive-command guard. Empty holds every risky command.",
+      "default": ""
     },
     "notifyHeadsUp": {
       "type": "boolean",

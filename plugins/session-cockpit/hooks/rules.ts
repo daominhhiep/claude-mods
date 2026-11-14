@@ -39,12 +39,45 @@ function rmTargets(argv: string[]): string[] {
 const SQL_DESTRUCTIVE = /\b(drop\s+(table|database|schema|index|view)|truncate\s+(table\s+)?\w)/i
 const SQL_DELETE_ALL = /\bdelete\s+from\s+[\w."]+\s*(;|"|'|$)/i
 
+const RM_FLAGS = /(^|[\s;&|(])rm((?:\s+-[-\w]+)*)\s/g
+
+/** True when some `rm` in the command removes recursively. */
+function isRecursiveRm(command: string): boolean {
+  for (const m of command.matchAll(RM_FLAGS)) {
+    const flags = (m[2] ?? '').trim().split(/\s+/)
+    if (flags.some(f => f === '--recursive' || /^-[a-zA-Z]*[rR]/.test(f))) return true
+  }
+  return false
+}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+/** Database hosts the command names: URL hosts, -h/--host and host= values. */
+export function dbHosts(command: string): string[] {
+  const hosts: string[] = []
+  const unquote = (s: string) => s.replace(/^["']+|["',;]+$/g, '')
+  for (const m of command.matchAll(
+    /\b(?:postgres(?:ql)?|mysql|mariadb):\/\/(?:[^@\s/'"]*@)?(\[[^\]]*\]|[^:/\s'"?]*)/gi,
+  )) {
+    hosts.push(m[1] ?? '')
+  }
+  for (const m of command.matchAll(/(?:^|\s)(?:-h\s*|--host[=\s]+)(\S+)/g)) hosts.push(unquote(m[1] ?? ''))
+  for (const m of command.matchAll(/\bhost=(\S+)/g)) hosts.push(unquote(m[1] ?? ''))
+  return hosts
+}
+
+/** True when the command names a database host and every one is this machine. */
+export function isLocalDb(command: string): boolean {
+  const hosts = dbHosts(command)
+  return hosts.length > 0 && hosts.every(h => LOCAL_HOSTS.has(h.toLowerCase()) || h.startsWith('/'))
+}
+
 /** Returns what makes a shell command destructive, or null. */
 export function detectBlast(command: string): Blast | null {
   const c = command
   const argv = simpleArgv(c)
 
-  if (/(^|[\s;&|(])rm\s+(-[a-zA-Z]*[rRf][a-zA-Z]*\s+|--recursive\s+|--force\s+)/.test(c)) {
+  if (isRecursiveRm(c)) {
     const targets = argv?.[0] === 'rm' ? rmTargets(argv) : []
     const canPreview = targets.length > 0 && targets.every(t => !/[*?[\]~]/.test(t))
     return {
@@ -73,10 +106,6 @@ export function detectBlast(command: string): Blast | null {
       preview: [{ argv: ['git', 'clean', '-nd'], label: 'would remove' }],
     }
   }
-  if (/\bgit\s+branch\s+.*-D\b/.test(c)) {
-    return { kind: 'Force-delete a branch' }
-  }
-
   if (/\bkubectl\s+(.*\s)?delete\b/.test(c)) {
     const canPreview = argv?.[0] === 'kubectl' && !argv.some(w => w.startsWith('--dry-run'))
     return {
@@ -105,7 +134,7 @@ export function detectBlast(command: string): Blast | null {
     return { kind: 'Terraform destroy' }
   }
 
-  if (/\b(psql|pgcli|sql|mysql)\b/i.test(c) || /\b(migrate|goose|atlas)\b/.test(c)) {
+  if ((/\b(psql|pgcli|sql|mysql)\b/i.test(c) || /\b(migrate|goose|atlas)\b/.test(c)) && !isLocalDb(c)) {
     if (SQL_DESTRUCTIVE.test(c)) return { kind: 'Drop or truncate database objects' }
     if (SQL_DELETE_ALL.test(c)) return { kind: 'DELETE without WHERE' }
     if (/\b(migrate|goose)\b.*\bdown\b/.test(c)) return { kind: 'Roll back migrations' }

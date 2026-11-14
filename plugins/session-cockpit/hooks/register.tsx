@@ -604,11 +604,22 @@ async function refreshAgents($: EngineInterface): Promise<void> {
   })
 }
 
+/** The guardSkip option as a regular expression; empty or invalid skips nothing. */
+function skipPattern(value: unknown): RegExp | null {
+  if (typeof value !== 'string' || value.trim() === '') return null
+  try {
+    return new RegExp(value)
+  } catch {
+    return null
+  }
+}
+
 export const register: Register = (on, options) => {
   const configuredBudget = typeof options.budgetUsd === 'number' ? options.budgetUsd : 0
   const cacheMs = ttlMs(options.cacheTtl)
   const redrawTranscript = options.transcriptStyle !== 'claude'
   const notifyHeadsUp = options.notifyHeadsUp !== false
+  const guardSkip = skipPattern(options.guardSkip)
   let lastHeadsUp: string | null = null
   let cwd = ''
 
@@ -1009,7 +1020,7 @@ export const register: Register = (on, options) => {
   on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
     const input = e.input as { command?: unknown }
     const command = typeof input.command === 'string' ? input.command : ''
-    const blast = detectBlast(command)
+    const blast = guardSkip?.test(command) ? null : detectBlast(command)
     if (blast === null) return next(e)
 
     // A call the person's own rules refuse stays refused: ask those rules
