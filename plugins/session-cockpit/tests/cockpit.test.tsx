@@ -47,6 +47,18 @@ test('detects destructive commands and leaves safe ones alone', async () => {
   expect(detectBlast('kubectl get pods')).toBe(null)
 })
 
+test('the guard lets local, low-risk work through', async () => {
+  expect(detectBlast('rm -f .overmind.sock; make dev')).toBe(null)
+  expect(detectBlast('rm -f -r build')?.kind).toBe('Delete files')
+  expect(detectBlast('cd x && rm -fR build')?.kind).toBe('Delete files')
+  expect(detectBlast('git worktree remove ../wt && git branch -D pr-7016 -q')).toBe(null)
+  expect(detectBlast(`U="postgres://postgres:pw@localhost:5432"; psql "$U/postgres" -qc "DROP DATABASE IF EXISTS t"`)).toBe(null)
+  expect(detectBlast('psql -h 127.0.0.1 -c "TRUNCATE orders"')).toBe(null)
+  expect(detectBlast('psql "postgres://u@db.prod:5432/app" -c "DROP TABLE orders"')?.kind).toContain('Drop')
+  expect(detectBlast('psql "postgres://u@localhost/a" -h db.prod -c "DROP TABLE orders"')?.kind).toContain('Drop')
+  expect(detectBlast('psql -c "DROP TABLE orders"')?.kind).toContain('Drop')
+})
+
 test('weather levels follow the thresholds', async () => {
   expect(levelOf(10).name).toBe('Clear')
   expect(levelOf(54).name).toBe('Showers')
@@ -88,6 +100,19 @@ test('the guard asks the person before a destructive command', async ($, on) => 
 
   const safe = await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
   expect(safe.decision).toBe('allow')
+})
+
+test('guardSkip lets matching commands through the guard', { options: { guardSkip: '^make ' } }, async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('tool.check', () => ({ decision: 'allow' }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'make clean && rm -rf build' } })).decision).toBe('allow')
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('ask')
 })
 
 test('the guard leaves a command the person\'s rules refuse refused', async ($, on) => {

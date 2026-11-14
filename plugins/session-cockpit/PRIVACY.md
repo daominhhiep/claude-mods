@@ -32,7 +32,7 @@ These are kept in the mod's own store, a JSON file Claude Code keeps for the plu
 
 The session's own transcript is Claude Code's, not the mod's: pinning does not copy it or keep it longer. Claude Code still cleans transcripts up after `cleanupPeriodDays` (30 by default); the Sessions tab warns when a pinned session gets close.
 
-Your settings for the mod (`budgetUsd`, `cacheTtl`) are kept by Claude Code in your own settings, like any plugin option.
+Your settings for the mod (`budgetUsd`, `cacheTtl`, `guardSkip`) are kept by Claude Code in your own settings, like any plugin option.
 
 ## What leaves your machine, and where
 

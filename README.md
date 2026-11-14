@@ -88,7 +88,7 @@ The pet is kept across sessions and grows with how often you use Claude Code. Ev
 
 **Guards**
 
-- **Destructive commands** always ask before running, even in auto-accept modes: `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `git branch -D`, `kubectl delete`, `kubectl scale --replicas=0`, `kubectl drain`, `helm uninstall`, `argocd app delete`, `argocd app sync --prune`, `terraform destroy`, SQL `DROP` / `TRUNCATE` / `DELETE` without `WHERE`, `migrate down`. Where it can, the prompt shows what would be affected (files and size for `rm`, `kubectl delete --dry-run=server`, `git clean -n`).
+- **Destructive commands** always ask before running, even in auto-accept modes: `rm -r`, `git push --force`, `git reset --hard`, `git clean -f`, `kubectl delete`, `kubectl scale --replicas=0`, `kubectl drain`, `helm uninstall`, `argocd app delete`, `argocd app sync --prune`, `terraform destroy`, SQL `DROP` / `TRUNCATE` / `DELETE` without `WHERE`, `migrate down` (SQL against `localhost` only is let through). Where it can, the prompt shows what would be affected (files and size for `rm`, `kubectl delete --dry-run=server`, `git clean -n`).
   It reads the command text only: an alias or a script that runs `rm` inside is not caught. Keep real limits in your credentials and roles.
 - **Budget**: once the session costs your limit, tool calls are refused. A toast warns at 80%.
 
@@ -117,6 +117,7 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 | Option | Default | What it does |
 | --- | --- | --- |
 | `budgetUsd` | `0` (off) | Refuse tool calls once the session costs this much |
+| `guardSkip` | empty | Regular expression; Bash commands that match it skip the destructive-command guard |
 | `cacheTtl` | `5m` | Prompt cache lifetime the clock counts down: `5m` or `1h`, as your plan or settings use |
 | `notifyHeadsUp` | `true` | Raise a system notification when Claude Code's You should know mod shows a new note above the prompt; a toast where no system notification can be raised (the desktop app) |
 | `transcriptStyle` | `cockpit` | `cockpit` redraws the spinner, your prompts and tool rows; `claude` leaves the transcript as Claude Code draws it |
