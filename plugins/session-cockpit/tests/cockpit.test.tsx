@@ -580,7 +580,7 @@ test('every wallpaper scene is a self-contained SVG under the size limit', async
   }
 })
 
-test('the Theme tab picks a wallpaper, kept for next time, and draws it behind the chat', async ($, on) => {
+test('the Wallpaper tab picks a wallpaper, kept for next time, and draws it behind the chat', async ($, on) => {
   mock.store(on)
   const sets: ThemeSetArgs[] = []
   let cleared = 0
@@ -608,10 +608,14 @@ test('the Theme tab picks a wallpaper, kept for next time, and draws it behind t
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'group-settings' })
+  // Wallpaper has a page of its own, apart from the Theme colors.
   await ui.press({ key: 'tab-theme' })
+  expect(JSON.stringify(await ui.drawn())).not.toContain('Dawn glow preview')
+  await ui.press({ key: 'tab-wallpaper' })
   expect(await ui.find({ type: 'Text', text: 'WALLPAPER' })).toBeDefined()
   // Every wallpaper has a preview card in the app, the still grounds included.
-  expect(await ui.find({ type: 'Svg', alt: 'Dawn glow preview' } as never)).toBeDefined()
+  const cards = JSON.stringify(await ui.drawn())
+  for (const name of ['Spiral galaxy', 'Dragon moon', 'Lantern festival', 'Turtle lagoon', 'Dawn glow']) expect(cards).toContain(`${name} preview`)
   await ui.press({ key: 'wallpaper-dusk' })
   expect(sets.at(-1)).toEqual({ backdrop: { gradient: { stops: ['#141233', '#33204d', '#6a3557'], angle: 180 } }, overrideColorScheme: 'dark' })
   await ui.press({ key: 'wallpaper-moon' })
@@ -645,7 +649,7 @@ test('the Theme tab picks a wallpaper, kept for next time, and draws it behind t
 
   const off = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await off.press({ key: 'group-settings' })
-  await off.press({ key: 'tab-theme' })
+  await off.press({ key: 'tab-wallpaper' })
   await off.press({ key: 'wallpaper-off' })
   expect(cleared).toBe(1)
   await off.unmount()
@@ -684,7 +688,7 @@ test('a theme repaints the band and the pane, and is kept for next time', async 
     expect(await ui.find({ type: 'Text', text: 'For light terminals' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Paper/ })).toBeDefined()
     await ui.press({ key: 'theme-shuffle' })
-    expect(await ui.find({ type: 'Text', text: surface === 'terminal' ? /^THEME$/ : /^COCKPIT COLORS$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^THEME$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Neon · saved/ })).toBeUndefined()
     await ui.press({ key: 'theme-reset' })
     expect(await ui.find({ type: 'Text', text: /^Claude · saved/ })).toBeDefined()
