@@ -131,6 +131,7 @@ const frame = atom({ plugin: 'session-cockpit', key: 'frame' } as const, 0)
 const paneFrame = atom({ plugin: 'session-cockpit', key: 'paneFrame' } as const, 0)
 const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude')
 const wallpaper = atom({ plugin: 'session-cockpit', key: 'wallpaper' } as const, 'off')
+const wallpaperBlur = atom({ plugin: 'session-cockpit', key: 'wallpaperBlur' } as const, false)
 const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEFAULT_EFFECTS)
 const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
 const flashAt = atom({ plugin: 'session-cockpit', key: 'flash' } as const, null)
@@ -174,14 +175,16 @@ const TYPE_MAX_MS = 1_200
 const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
 const WALLPAPER_KEY = 'wallpaper'
+const WALLPAPER_BLUR_KEY = 'wallpaperBlur'
 
-// The wallpaper's look: a moving scene with frosted panels over it, or a still
-// gradient the app paints itself; either way, the mode it was painted for.
+// The wallpaper's look: a moving scene, its panels frosted only when the person
+// asks, or a still gradient the app paints itself; either way, the mode it was
+// painted for.
 type WallpaperId = SceneId | GroundId
 const isWallpaperId = (id: unknown): id is WallpaperId => isSceneId(id) || isGroundId(id)
-const wallpaperLook = (id: WallpaperId): ThemeSetArgs => {
+const wallpaperLook = (id: WallpaperId, blur: boolean): ThemeSetArgs => {
   if (isSceneId(id)) {
-    return { backdrop: { scene: id, glass: { blur: 12 } }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
+    return { backdrop: { scene: id, glass: blur ? { blur: 12 } : false }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
   }
   const g = GROUNDS.find(x => x.id === id)!
   return {
@@ -192,6 +195,10 @@ const wallpaperLook = (id: WallpaperId): ThemeSetArgs => {
 // Each scene's SVG, built once: it depends on nothing but the scene.
 const builtScenes = new Map<SceneId, string>()
 // Claude Code's default dark colors, for the Claude theme's chips.
+// Wallpaper preview cards, small enough that two or three sit in a row.
+const THUMB_W = 112
+const THUMB_H = 64
+
 const CLAUDE_CHIPS: Record<string, string> = { claude: '#d77757', success: '#4eba65', warning: '#ffc107', error: '#ff6b80', suggestion: '#b1b9f9', permission: '#b1b9f9' }
 
 const WALLPAPER_CHOICES = ['off', ...SCENES.map(w => w.id), ...GROUNDS.map(g => g.id)]
@@ -213,7 +220,7 @@ async function chooseWallpaper($: EngineInterface, id: string): Promise<{ isSave
     await $.theme.clear()
     return { isSaved, isDrawn: false }
   }
-  const set = await $.theme.set(wallpaperLook(id))
+  const set = await $.theme.set(wallpaperLook(id, await read($, wallpaperBlur)))
   return { isSaved, isDrawn: set.isDrawn }
 }
 const PET_KEY = 'petLife'
@@ -354,8 +361,10 @@ async function loadSaved($: EngineInterface): Promise<void> {
     if (typeof savedWallpaper === 'string') await update($, wallpaper, () => savedWallpaper)
     // Neither a reload nor /resume keeps a backdrop, so set it again here. Off sets
     // nothing: clearing here would take away another mod's look.
+    const savedBlur = await $.store.get(WALLPAPER_BLUR_KEY)
+    if (typeof savedBlur === 'boolean') await update($, wallpaperBlur, () => savedBlur)
     const scene = await read($, wallpaper)
-    if (isWallpaperId(scene)) await $.theme.set(wallpaperLook(scene))
+    if (isWallpaperId(scene)) await $.theme.set(wallpaperLook(scene, await read($, wallpaperBlur)))
     const savedEffects = await $.store.get(EFFECTS_KEY)
     if (savedEffects !== undefined) await update($, effects, () => effectsFrom(savedEffects))
     const days = await $.settings.read({ key: 'cleanupPeriodDays' })
@@ -3424,18 +3433,50 @@ export const register: Register = (on, options) => {
           </Button>
         )
       }
-      // A card per wallpaper: a small preview over its name, outlined when chosen.
+      // A card per wallpaper: a small preview over a real button with its name.
+      // Only a Button takes a press, so the button is drawn as one, filled when
+      // chosen, and the whole card lights up under the pointer.
       const wallpaperCard = (id: WallpaperId, name: string) => {
         const isOn = id === scene
         return (
-          <Box key={`wallpaper-card-${id}`} flexDirection="column" alignItems="center" borderStyle="round" borderColor={isOn ? paint('claude') : paint('inactive')} overflow="hidden">
-            {Svg === undefined ? null : <Svg source={wallpaperThumb(id)} alt={`${name} preview`} width={136} height={82} />}
-            <Button key={`wallpaper-${id}`} plain onPress={() => pickWallpaper(id)}>
-              {isOn ? `◉ ${name}` : name}
+          <Box
+            key={`wallpaper-card-${id}`}
+            flexDirection="column"
+            alignItems="center"
+            gap={1}
+            padding={1}
+            borderStyle="round"
+            borderColor={isOn ? paint('claude') : paint('inactive')}
+            borderDimColor={!isOn}
+            hover={{ borderColor: paint('claude'), borderDimColor: false }}
+            overflow="hidden"
+          >
+            {Svg === undefined ? null : <Svg source={wallpaperThumb(id)} alt={`${name} preview`} width={THUMB_W} height={THUMB_H} />}
+            <Button key={`wallpaper-${id}`} variant={isOn ? 'primary' : 'secondary'} onPress={() => pickWallpaper(id)}>
+              {isOn ? `✓ ${name}` : name}
             </Button>
           </Box>
         )
       }
+      const blur = await read($, wallpaperBlur)
+      const toggleBlur = async () => {
+        const next = !blur
+        await update($, wallpaperBlur, () => next)
+        try {
+          await $.store.set(WALLPAPER_BLUR_KEY, next)
+        } catch {
+          $.ui.toast('Changed for this session; it could not be saved for the next one.')
+        }
+        if (isSceneId(scene)) await $.theme.set(wallpaperLook(scene, next))
+      }
+      const blurRow = (
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Button key="wallpaper-blur" plain onPress={toggleBlur}>
+            <Text color={paint(blur ? 'claude' : 'subtle')}>{blur ? '■ ' : '□ '}</Text>
+            <Text>Blur the picture behind the chat</Text>
+          </Button>
+        </Box>
+      )
       const off = (
         <Box flexDirection="row">
           <Button key="wallpaper-off" dimColor={scene !== 'off'} onPress={() => pickWallpaper('off')}>
@@ -3448,6 +3489,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" gap={1}>
             {heading('Wallpaper', wallpaperName(scene))}
             <Text color={paint('inactive')}>A picture behind the chat, in the desktop and mobile apps</Text>
+            {blurRow}
             {SCENE_GROUPS.map(g => (
               <Box key={`wallpaper-group-${g.kind}`} flexDirection="column">
                 <Text color={paint('subtle')} bold>
@@ -3469,6 +3511,7 @@ export const register: Register = (on, options) => {
             {heading('Wallpaper', wallpaperName(scene))}
             <Text color={paint('inactive')}>Behind every chat in the app, kept for every session</Text>
             {off}
+            {blurRow}
             {SCENE_GROUPS.map(g => (
               <Box key={`wallpaper-group-${g.kind}`} flexDirection="column" gap={1}>
                 <Text color={paint('subtle')} bold>

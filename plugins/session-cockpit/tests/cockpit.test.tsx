@@ -619,14 +619,19 @@ test('the Wallpaper tab picks a wallpaper, kept for next time, and draws it behi
   await ui.press({ key: 'wallpaper-dusk' })
   expect(sets.at(-1)).toEqual({ backdrop: { gradient: { stops: ['#141233', '#33204d', '#6a3557'], angle: 180 } }, overrideColorScheme: 'dark' })
   await ui.press({ key: 'wallpaper-moon' })
-  expect(sets.at(-1)).toEqual({ backdrop: { scene: 'moon', glass: { blur: 12 } }, overrideColorScheme: 'dark' })
+  expect(sets.at(-1)).toEqual({ backdrop: { scene: 'moon', glass: false }, overrideColorScheme: 'dark' })
+  // Blur is off by default; the toggle frosts the chat over the picture and back.
+  await ui.press({ key: 'wallpaper-blur' })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: { blur: 12 } })
+  await ui.press({ key: 'wallpaper-blur' })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: false })
   await ui.press({ key: 'wallpaper-clouds' })
   expect(sets.at(-1)?.overrideColorScheme).toBe('light')
   await ui.unmount()
 
   // A new session sets the saved wallpaper again.
   await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
-  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'clouds', glass: { blur: 12 } })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'clouds', glass: false })
 
   for (const surface of ['desktop', 'mobile'] as const) {
     const mine = { plugin: 'session-cockpit', component: 'Backdrop', props: { scene: 'clouds', plugin: 'session-cockpit', glass: false } } as const
@@ -643,7 +648,7 @@ test('the Wallpaper tab picks a wallpaper, kept for next time, and draws it behi
   expect(listed.text).toContain('Wallpaper: Drifting clouds')
   const moon = (await $.command.run({ command: 'wallpaper', args: 'Moon' } as never)) as { text: string }
   expect(moon.text).toBe('Wallpaper: Moonlit night, saved for every session.')
-  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: { blur: 12 } })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: false })
   const wrong = (await $.command.run({ command: 'wallpaper', args: 'sunset' } as never)) as { text: string }
   expect(wrong.text).toContain('There is no "sunset" wallpaper')
 
