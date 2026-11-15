@@ -182,6 +182,29 @@ const wallpaperLook = (id: SceneId): ThemeSetArgs => ({
 })
 // Each scene's SVG, built once: it depends on nothing but the scene.
 const builtScenes = new Map<SceneId, string>()
+
+const WALLPAPER_CHOICES = ['off', ...SCENES.map(w => w.id)]
+const wallpaperName = (id: string) => (id === 'off' ? 'Off' : SCENES.find(w => w.id === id)?.name ?? id)
+
+/**
+ * Saves the wallpaper for every session and applies it now: a scene sets the
+ * app's look, Off clears it (only ever on the person's own pick).
+ */
+async function chooseWallpaper($: EngineInterface, id: string): Promise<{ isSaved: boolean; isDrawn: boolean }> {
+  await update($, wallpaper, () => id)
+  let isSaved = true
+  try {
+    await $.store.set(WALLPAPER_KEY, id)
+  } catch {
+    isSaved = false
+  }
+  if (!isSceneId(id)) {
+    await $.theme.clear()
+    return { isSaved, isDrawn: false }
+  }
+  const set = await $.theme.set(wallpaperLook(id))
+  return { isSaved, isDrawn: set.isDrawn }
+}
 const PET_KEY = 'petLife'
 const WARN_DAYS = 7
 
@@ -670,6 +693,11 @@ export const register: Register = (on, options) => {
       name: 'pat',
       description: 'Pet your pet',
     })
+    await $.command.register({
+      name: 'wallpaper',
+      description: 'Picture behind the chat in the desktop and mobile apps, e.g. /wallpaper moon or /wallpaper off',
+      argumentHint: '[scene|off]',
+    })
     await loadSaved($)
     void $.ui.open({ id: PANE, title: TITLE })
     // Keeps the clocks above the prompt current.
@@ -831,6 +859,26 @@ export const register: Register = (on, options) => {
           : `Budget set to $${parsed.toFixed(2)} for this session (spent ${money(spent)}).`,
     }
   })
+
+  on('command.run', { command: 'wallpaper' }, async ($, e) => {
+    const arg = (e.args ?? '').trim().toLowerCase()
+    const list = WALLPAPER_CHOICES.join(', ')
+    if (arg === '') {
+      const current = await read($, wallpaper)
+      return { text: `Wallpaper: ${wallpaperName(current)}. Change it with /wallpaper <name>: ${list}.` }
+    }
+    if (!WALLPAPER_CHOICES.includes(arg)) {
+      return { text: `There is no "${arg}" wallpaper. Pick one of: ${list}.` }
+    }
+    const done = await chooseWallpaper($, arg)
+    const kept = done.isSaved ? 'saved for every session' : 'for this session only; it could not be saved for the next one'
+    if (arg === 'off') return { text: `Wallpaper off, ${kept}.` }
+    return {
+      text: done.isDrawn
+        ? `Wallpaper: ${wallpaperName(arg)}, ${kept}.`
+        : `Wallpaper: ${wallpaperName(arg)}, ${kept}. It shows in the Claude desktop and mobile apps, not in a terminal.`,
+    }
+  }).catch(() => ({ text: 'The wallpaper could not be changed. Try again, or pick one in /cockpit · Settings · Theme.' }))
 
   // ── Model and effort of the main loop's requests ───────────────────
   // Reads the request's model and effort as it goes out; changes nothing.
@@ -3293,18 +3341,9 @@ export const register: Register = (on, options) => {
       }
       const scene = await read($, wallpaper)
       const pickWallpaper = async (id: string) => {
-        await update($, wallpaper, () => id)
-        try {
-          await $.store.set(WALLPAPER_KEY, id)
-        } catch {
-          $.ui.toast('Wallpaper set for this session; it could not be saved for the next one.')
-        }
-        if (!isSceneId(id)) {
-          await $.theme.clear()
-          return
-        }
-        const set = await $.theme.set(wallpaperLook(id))
-        if (!set.isDrawn) $.ui.toast('Wallpaper saved. It shows in the Claude desktop and mobile apps.')
+        const done = await chooseWallpaper($, id)
+        if (!done.isSaved) $.ui.toast('Wallpaper set for this session; it could not be saved for the next one.')
+        else if (isSceneId(id) && !done.isDrawn) $.ui.toast('Wallpaper saved. It shows in the Claude desktop and mobile apps.')
       }
       const wallpaperRow = (id: string, name: string) => {
         const isOn = id === scene

@@ -130,6 +130,7 @@ Needs Claude Code 2.1.304 or later. The PR row needs the GitHub CLI (`gh`) signe
 - `/budget [amount|off]` shows or sets this session's spending limit.
 - `/pin [name]` pins this session; with a name it also renames it, so `/resume <name>` finds it.
 - `/unpin` unpins this session.
+- `/wallpaper [name|off]` shows or changes the wallpaper behind the chat in the desktop and mobile apps (`honu`, `clouds`, `koi`, `jelly`, `boats`, `fireflies`, `moon`), the same choice as Settings · Theme · Wallpaper.
 
 ### Develop
 

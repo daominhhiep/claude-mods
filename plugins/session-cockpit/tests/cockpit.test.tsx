@@ -630,6 +630,15 @@ test('the Theme tab picks a wallpaper, kept for next time, and draws it behind t
     await theirs.unmount()
   }
 
+  // /wallpaper does the same as the tab, by name.
+  const listed = (await $.command.run({ command: 'wallpaper', args: '' } as never)) as { text: string }
+  expect(listed.text).toContain('Wallpaper: Drifting clouds')
+  const moon = (await $.command.run({ command: 'wallpaper', args: 'Moon' } as never)) as { text: string }
+  expect(moon.text).toBe('Wallpaper: Moonlit night, saved for every session.')
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: { blur: 12 } })
+  const wrong = (await $.command.run({ command: 'wallpaper', args: 'sunset' } as never)) as { text: string }
+  expect(wrong.text).toContain('There is no "sunset" wallpaper')
+
   const off = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await off.press({ key: 'group-settings' })
   await off.press({ key: 'tab-theme' })
