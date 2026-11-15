@@ -1018,37 +1018,139 @@ function puffCloud(x: number, y: number, s: number, rnd: () => number, light = '
   return circles(shade, 14 * s) + circles(light, 0)
 }
 
+/**
+ * One floating island centred on its grass line at (0,0): a jagged rock that
+ * narrows to a tip, layered and shaded, a grass cap that overhangs it, roots
+ * hanging below, and trees on top. `n` keeps its gradient ids apart.
+ */
+function floatingIsle(w: number, n: number, rnd: () => number, extra = ''): string {
+  const depth = w * (1.1 + rnd() * 0.3)
+  const tip = (rnd() - 0.5) * w * 0.3
+  // The underside: a jagged line from the right edge down to the tip and back up.
+  const under: [number, number][] = []
+  const steps = 18
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    const x = w - 2 * w * t + (i > 0 && i < steps ? (rnd() - 0.5) * w * 0.07 : 0)
+    const k = 1 - Math.pow(Math.abs(2 * t - 1), 1.6)
+    const y = 10 + (depth - 10) * k * (1 - Math.abs(x - tip) / (w * 2.2)) + (i % 2 ? rnd() * w * 0.08 : -rnd() * w * 0.04)
+    under.push([x, Math.max(10, y)])
+  }
+  const rock = `M${-w} 4 L${w} 4 ` + under.map(([x, y]) => `L${r1(x)} ${r1(y)}`).join(' ') + ' Z'
+  // Strata: wavy darker bands across the rock, kept inside it.
+  let strata = ''
+  for (let k = 1; k <= 5; k++) {
+    const y = (depth * k) / 6
+    strata += `<path d="M${-w} ${r1(y)} Q${r1(-w / 2)} ${r1(y + (rnd() - 0.5) * 18)} 0 ${r1(y)} T${w} ${r1(y + (rnd() - 0.5) * 14)}" fill="none" stroke="#3a2418" stroke-opacity=".28" stroke-width="${r1(2 + rnd() * 3)}"/>`
+  }
+  // Roots and vines hanging from the underside, swaying a little.
+  let roots = ''
+  for (let i = 0; i < 9; i++) {
+    const [x, y] = under[1 + Math.floor(rnd() * (steps - 1))]!
+    const len = 20 + rnd() * 70
+    roots += `M${r1(x)} ${r1(y - 4)} q${r1((rnd() - 0.5) * 30)} ${r1(len / 2)} ${r1((rnd() - 0.5) * 16)} ${r1(len)}`
+  }
+  // The grass cap: a soft top edge and tufts that drip over the rim.
+  let grass = `M${r1(-w * 1.06)} 10`
+  for (let x = -w * 1.06; x <= w * 1.06; x += w / 8) grass += ` Q${r1(x + w / 16)} ${r1(-10 - rnd() * 8)} ${r1(x + w / 8)} ${r1(-4 - rnd() * 4)}`
+  grass += ` L${r1(w * 1.06)} 10`
+  for (let x = w * 1.06; x >= -w * 1.06; x -= w / 10) grass += ` Q${r1(x - w / 20)} ${r1(10 + (rnd() < 0.4 ? 10 + rnd() * 18 : 2))} ${r1(x - w / 10)} 10`
+  grass += ' Z'
+  // Trees: round canopies lit from the upper left, and a few dark firs.
+  let trees = ''
+  const count = Math.round(w / 40)
+  for (let i = 0; i < count; i++) {
+    const x = -w * 0.85 + (1.7 * w * (i + rnd() * 0.6)) / count
+    const s = 0.6 + rnd() * 0.7
+    if (rnd() < 0.35) {
+      trees += `<path d="M${r1(x)} ${r1(-70 * s)} L${r1(x + 16 * s)} ${r1(-20 * s)} L${r1(x + 7 * s)} ${r1(-22 * s)} L${r1(x + 20 * s)} -2 L${r1(x - 20 * s)} -2 L${r1(x - 7 * s)} ${r1(-22 * s)} L${r1(x - 16 * s)} ${r1(-20 * s)} Z" fill="#2c5f45"/>`
+    } else {
+      trees +=
+        `<rect x="${r1(x - 3 * s)}" y="${r1(-26 * s)}" width="${r1(6 * s)}" height="${r1(26 * s)}" fill="#5a3b28"/>` +
+        `<circle cx="${r1(x - 12 * s)}" cy="${r1(-34 * s)}" r="${r1(16 * s)}" fill="#3d7d47"/><circle cx="${r1(x + 12 * s)}" cy="${r1(-36 * s)}" r="${r1(17 * s)}" fill="#3d7d47"/>` +
+        `<circle cx="${r1(x)}" cy="${r1(-50 * s)}" r="${r1(20 * s)}" fill="#4f9a55"/><circle cx="${r1(x - 6 * s)}" cy="${r1(-56 * s)}" r="${r1(10 * s)}" fill="#7cc46a" opacity=".8"/>`
+    }
+  }
+  return (
+    `<path d="${rock}" fill="url(#rock)"/>` +
+    `<g clip-path="url(#clip${n})">${strata}<rect x="${-w}" y="0" width="${2 * w}" height="${r1(depth + 40)}" fill="url(#side)"/></g>` +
+    `<clipPath id="clip${n}"><path d="${rock}"/></clipPath>` +
+    `<path d="${roots}" fill="none" stroke="#4a3426" stroke-width="2" stroke-linecap="round" opacity=".75"/>` +
+    `<path d="${grass}" fill="url(#grass)"/>` +
+    extra +
+    trees
+  )
+}
+
+/** A little house with a red roof and a lit window, for the big island. */
+const COTTAGE =
+  `<rect x="-22" y="-34" width="44" height="34" fill="#efe2c8"/><rect x="-22" y="-34" width="44" height="34" fill="url(#side)"/>` +
+  `<path d="M-30 -32 L0 -58 L30 -32 Z" fill="#b8503e"/><path d="M0 -58 L30 -32 L18 -32 Z" fill="#8e3a2e"/>` +
+  `<rect x="-6" y="-24" width="12" height="12" rx="2" fill="#ffd27a"/><rect x="12" y="-56" width="7" height="14" fill="#6b4a3a"/>`
+
 function islands(o: BuildOptions): string {
   const rnd = rng(211)
-  let body = ''
-  for (let i = 0; i < 5; i++) {
-    body += `<g class="a" style="${anim('dr', 160 + rnd() * 80, o.speed, rnd())}">${puffCloud(200, H * (0.15 + rnd() * 0.6), 0.6 + rnd() * 0.6, rnd)}</g>`
+  let body = `<circle cx="${W * 0.82}" cy="${H * 0.12}" r="420" fill="url(#sunglow)"/>`
+  // Sunbeams fanning down from the upper right, breathing slowly.
+  for (let i = 0; i < 4; i++) {
+    const x = W * (0.62 + i * 0.1)
+    body += `<polygon points="${r1(x)},0 ${r1(x + 50)},0 ${r1(x - 420)},${H} ${r1(x - 560)},${H}" fill="#fffbe8" style="${anim('beam', 10 + i * 3, o.speed, rnd(), 'ease-in-out ')}"/>`
+  }
+  // Far islands, faded into the haze.
+  for (const [x, y, w] of [
+    [W * 0.08, H * 0.2, 60],
+    [W * 0.42, H * 0.12, 44],
+    [W * 0.96, H * 0.42, 52],
+  ] as const) {
+    body += `<g transform="translate(${r1(x)} ${r1(y)})" opacity=".42"><g style="${anim('bobY', 9, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">${floatingIsle(w, Math.round(x), rnd)}</g></g>`
+  }
+  // High clouds drifting.
+  for (let i = 0; i < 4; i++) {
+    body += `<g class="a" style="${anim('dr', 180 + rnd() * 90, o.speed, rnd())}" opacity=".9">${puffCloud(200, H * (0.18 + rnd() * 0.35), 0.45 + rnd() * 0.4, rnd, '#ffffff', '#dde8f6')}</g>`
   }
   const isles = [
-    { x: W * 0.22, y: H * 0.42, s: 1 },
-    { x: W * 0.62, y: H * 0.28, s: 1.35 },
-    { x: W * 0.86, y: H * 0.6, s: 0.8 },
+    { x: W * 0.24, y: H * 0.44, w: 150, fall: 0.5 },
+    { x: W * 0.6, y: H * 0.3, w: 230, fall: -0.62, house: true },
+    { x: W * 0.87, y: H * 0.58, w: 110, fall: 0 },
   ]
   for (const [i, it] of isles.entries()) {
-    const w = 170 * it.s
-    const rock = `M${-w} 0 Q${-w * 0.6} ${w * 0.5} ${-w * 0.2} ${w * 0.9} L0 ${w * 1.25} L${w * 0.25} ${w * 0.8} Q${w * 0.7} ${w * 0.45} ${w} 0 Z`
-    const trees = [-0.55, -0.15, 0.3, 0.6]
-      .map(f => `<rect x="${r1(f * w - 3)}" y="${r1(-34 * it.s)}" width="6" height="${r1(30 * it.s)}" fill="#6b4a33"/><circle cx="${r1(f * w)}" cy="${r1(-40 * it.s)}" r="${r1(22 * it.s)}" fill="#3f9b5a"/>`)
-      .join('')
+    const fx = it.fall * it.w
+    // A waterfall from the rim: a pale sheet with streaks running down, and mist below.
+    const fall = it.fall
+      ? `<rect x="${r1(fx - 9)}" y="6" width="18" height="${r1(H * 0.6)}" fill="url(#fall)"/>` +
+        `<path d="M${r1(fx - 5)} 8 v${r1(H * 0.55)} M${r1(fx + 4)} 8 v${r1(H * 0.55)}" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="20 34" stroke-linecap="round" opacity=".8" style="${anim('pour', 1.6, o.speed, 0)}"/>` +
+        `<ellipse cx="${r1(fx)}" cy="${r1(H * 0.58)}" rx="60" ry="22" fill="url(#mist)"/>`
+      : ''
+    const house = it.house ? `<g transform="translate(${r1(it.w * 0.25)} -4)">${COTTAGE}</g>` : ''
     body +=
-      `<g transform="translate(${r1(it.x)} ${r1(it.y)})"><g style="${anim('bobY', 6 + i * 1.7, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">` +
-      `<rect x="${r1(w * 0.55)}" y="0" width="${r1(16 * it.s)}" height="${r1(H)}" fill="url(#fall)" class="f" style="${anim('pour', 2.5, o.speed, 0)}"/>` +
-      `<path d="${rock}" fill="#8a6d58"/><path d="${rock}" fill="url(#rockShade)"/>` +
-      `<ellipse cx="0" cy="0" rx="${r1(w * 1.02)}" ry="${r1(22 * it.s)}" fill="#6cc46f"/>${trees}</g></g>`
+      `<g transform="translate(${r1(it.x)} ${r1(it.y)})"><g style="${anim('bobY', 7 + i * 1.9, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">` +
+      fall + floatingIsle(it.w, i, rnd, house) + `</g></g>`
+  }
+  // Birds crossing.
+  for (let b = 0; b < 4; b++) {
+    body += `<g class="a" style="${anim('dr', 50 + rnd() * 30, o.speed, rnd())}"><path d="M0 ${r1(H * (0.12 + rnd() * 0.3))} q7 -6 14 0 q7 -6 14 0" fill="none" stroke="#4a5a78" stroke-width="2" stroke-linecap="round"/></g>`
+  }
+  // A sea of cloud below everything, in two slow layers.
+  for (const [y, s, speed, shade] of [
+    [H * 0.92, 1.3, 260, '#d3e1f3'],
+    [H * 1.0, 1.6, 200, '#c6d7ee'],
+  ] as const) {
+    let band = ''
+    for (let x = -300; x < W + 300; x += 210) band += puffCloud(x, y + (rnd() - 0.5) * 30, s * (0.8 + rnd() * 0.4), rnd, '#ffffff', shade)
+    body += `<g class="a" style="${anim('sea', speed, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">${band}</g>`
   }
   return doc({
     w: W,
     h: H,
-    sky: ['#7cc4ff', '#bfe3ff', '#fff2dc'],
+    sky: ['#6fb3f2', '#a9d4fa', '#dcecf9', '#fdf0dc'],
     defs:
-      `<linearGradient id="fall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8f7ff" stop-opacity=".95"/><stop offset=".35" stop-color="#e8f7ff" stop-opacity="0"/></linearGradient>` +
-      `<linearGradient id="rockShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".4"/></linearGradient>`,
-    css: `${DRIFT_CSS}${FLOAT_CSS}@keyframes pour{0%,100%{opacity:.75}50%{opacity:1}}`,
+      softGradient('sunglow', '#fff6d8', 0.9) +
+      softGradient('mist', '#ffffff', 0.9) +
+      `<linearGradient id="rock" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9a7457"/><stop offset=".45" stop-color="#6e4c3a"/><stop offset="1" stop-color="#3b2a33"/></linearGradient>` +
+      `<linearGradient id="side" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff3d6" stop-opacity=".22"/><stop offset=".45" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#1b1030" stop-opacity=".45"/></linearGradient>` +
+      `<linearGradient id="grass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9edb6e"/><stop offset="1" stop-color="#4c9444"/></linearGradient>` +
+      `<linearGradient id="fall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e9f7ff" stop-opacity=".95"/><stop offset=".7" stop-color="#e9f7ff" stop-opacity=".35"/><stop offset="1" stop-color="#e9f7ff" stop-opacity="0"/></linearGradient>`,
+    css: `${DRIFT_CSS}${FLOAT_CSS}@keyframes pour{to{stroke-dashoffset:-54}}@keyframes beam{0%,100%{opacity:.06}50%{opacity:.2}}@keyframes sea{from{transform:translateX(-60px)}to{transform:translateX(60px)}}`,
     body,
     veil: o.veil,
     veilColor: o.veilColor,
