@@ -36,13 +36,13 @@ Every scene fills any window, from a tall phone to a wide desktop. With reduced 
 
 ## Where it shows
 
-The desktop and mobile apps draw it. A terminal or an editor draws no wallpaper; the mod then does nothing.
+Needs Claude Code 2.1.323 or later. The desktop and mobile apps draw it. A terminal or an editor draws no wallpaper; the mod then does nothing.
 
 ## What it does
 
 | Event | What the hook does | Changes anything? |
 | --- | --- | --- |
-| `session.start` | Registers `/wallpaper` and sets the session's look to the chosen scene (with `off`, sets nothing) | Sets the session's theme |
+| `session.start` | Registers `/wallpaper` and sets the session's look to the chosen scene (with `off`, sets nothing) | Sets the session's theme, replacing any other mod's look |
 | `command.run` (`wallpaper`) | Shows or switches the scene for this session | Answers its own command only; `off` clears the session's theme |
 | `ui.render` (`Backdrop`) | Draws this mod's scene as an SVG | Draws only a backdrop this mod set |
 

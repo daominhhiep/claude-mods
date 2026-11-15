@@ -4,7 +4,6 @@ import type { Register, ThemeResult, ThemeSetArgs } from 'claude-code'
 import { SCENES, buildScene, isSceneId } from './scenes'
 import type { SceneId } from './scenes'
 
-const PLUGIN = 'ascii-wallpaper'
 const COMMAND = 'wallpaper'
 
 // The scene /wallpaper picked for this session; null follows the `scene` option.
@@ -73,7 +72,8 @@ export const register: Register = (on, options) => {
   }).catch(() => ({ text: 'The wallpaper could not be changed. Try /wallpaper again, or restart the session.' }))
 
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
-    if (e.props.plugin !== PLUGIN || !isSceneId(e.props.scene)) return next(e)
+    // Every mod's backdrop comes here; draw only the one this mod set.
+    if (e.props.plugin !== $.plugin.name || !isSceneId(e.props.scene)) return next(e)
     if (e.surface !== 'desktop' && e.surface !== 'mobile') return next(e)
 
     const id = e.props.scene
