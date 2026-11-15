@@ -6,16 +6,17 @@
 export const SCENE_IDS = ['honu', 'clouds', 'koi', 'jelly', 'boats', 'fireflies', 'moon'] as const
 export type SceneId = (typeof SCENE_IDS)[number]
 
-export type SceneInfo = { id: SceneId; name: string; alt: string }
+/** `scheme` is the mode the scene is painted for, so text over it reads light on dark or dark on light. */
+export type SceneInfo = { id: SceneId; name: string; alt: string; scheme: 'light' | 'dark' }
 
 export const SCENES: SceneInfo[] = [
-  { id: 'honu', name: 'Turtle lagoon', alt: 'Sea turtles, a manta, dolphins and a school of fish crossing a turquoise lagoon, drawn in characters' },
-  { id: 'clouds', name: 'Drifting clouds', alt: 'White clouds drifting across a blue sky, drawn in characters' },
-  { id: 'koi', name: 'Koi pond', alt: 'Koi swimming between lily pads in a green pond, drawn in characters' },
-  { id: 'jelly', name: 'Jellyfish', alt: 'Glowing jellyfish rising through deep blue water, drawn in characters' },
-  { id: 'boats', name: 'Paper boats', alt: 'Paper boats bobbing on a rippling sea under passing clouds, drawn in characters' },
-  { id: 'fireflies', name: 'Fireflies', alt: 'Fireflies blinking over swaying grass at night, drawn in characters' },
-  { id: 'moon', name: 'Moonlit night', alt: 'A crescent moon, twinkling stars and passing clouds, drawn in characters' },
+  { id: 'honu', name: 'Turtle lagoon', alt: 'Sea turtles, a manta, dolphins and a school of fish crossing a turquoise lagoon, drawn in characters', scheme: 'light' },
+  { id: 'clouds', name: 'Drifting clouds', alt: 'White clouds drifting across a blue sky, drawn in characters', scheme: 'light' },
+  { id: 'koi', name: 'Koi pond', alt: 'Koi swimming between lily pads in a green pond, drawn in characters', scheme: 'dark' },
+  { id: 'jelly', name: 'Jellyfish', alt: 'Glowing jellyfish rising through deep blue water, drawn in characters', scheme: 'dark' },
+  { id: 'boats', name: 'Paper boats', alt: 'Paper boats bobbing on a rippling sea under passing clouds, drawn in characters', scheme: 'light' },
+  { id: 'fireflies', name: 'Fireflies', alt: 'Fireflies blinking over swaying grass at night, drawn in characters', scheme: 'dark' },
+  { id: 'moon', name: 'Moonlit night', alt: 'A crescent moon, twinkling stars and passing clouds, drawn in characters', scheme: 'dark' },
 ]
 
 export function isSceneId(value: unknown): value is SceneId {
@@ -222,14 +223,14 @@ type Doc = {
   defs?: string
   body: string
   veil: number
+  /** The page tone the veil fades toward. */
+  veilColor: string
 }
 
 const BASE_CSS = `
 text{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:15px;white-space:pre}
 .a{animation-iteration-count:infinite;animation-timing-function:linear}
 .f{transform-box:fill-box;transform-origin:center}
-.veil{fill:#fafafc}
-@media (prefers-color-scheme:dark){.veil{fill:#0c0c10}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `
 
@@ -245,7 +246,7 @@ function doc(d: Doc): string {
     `<defs><linearGradient id="sky" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops}</linearGradient>${d.defs ?? ''}</defs>` +
     `<rect width="${d.w}" height="${d.h}" fill="url(#sky)"/>` +
     d.body +
-    (d.veil > 0 ? `<rect class="veil" width="${d.w}" height="${d.h}" fill-opacity="${r2(d.veil)}"/>` : '') +
+    (d.veil > 0 ? `<rect class="veil" width="${d.w}" height="${d.h}" fill="${d.veilColor}" fill-opacity="${r2(d.veil)}"/>` : '') +
     `</svg>`
   )
 }
@@ -319,7 +320,7 @@ function cloudsSvg(clouds: Cloud[], colors: Record<string, string>, glyphs: stri
 
 // ---------- the scenes ----------
 
-function clouds(o: SceneOptions): string {
+function clouds(o: BuildOptions): string {
   const rnd = rng(11)
   const list = makeClouds(area(700), rnd, 0.95)
   return doc({
@@ -329,10 +330,11 @@ function clouds(o: SceneOptions): string {
     css: DRIFT_CSS,
     body: cloudsSvg(list, { c: '#ffffff', s: '#d6ecfa' }, 'SXSX#', o.speed),
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
-function koi(o: SceneOptions): string {
+function koi(o: BuildOptions): string {
   const rnd = rng(23)
   const glints = Array.from({ length: area(60) }, () => ({ x: rnd() * W, y: rnd() * H, ch: '·' }))
   let body = twinkles(glints, '#bff7e4', 6, 7, o.speed, rnd)
@@ -377,6 +379,7 @@ function koi(o: SceneOptions): string {
 @keyframes sw{from{transform:translateY(calc(var(--a) * -1))}to{transform:translateY(var(--a))}}`,
     body,
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
@@ -389,7 +392,7 @@ const JELLY_COLORS = [
 // A jelly is at most this tall with its tentacles, so it leaves the top whole.
 const RISE_TOP = 260
 
-function jelly(o: SceneOptions): string {
+function jelly(o: BuildOptions): string {
   const rnd = rng(37)
   let body = ''
 
@@ -448,6 +451,7 @@ function jelly(o: SceneOptions): string {
 @keyframes pulse{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.88)}}`,
     body,
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
@@ -466,7 +470,7 @@ function waveRows(top: number, bottom: number, period: number, k1: number, k2: n
   return `<text fill="#f2fffd">${spans}</text>`
 }
 
-function boats(o: SceneOptions): string {
+function boats(o: BuildOptions): string {
   const rnd = rng(41)
   const horizon = Math.round(ROWS * 0.5)
   let body = cloudsSvg(makeClouds(area(1800), rnd, 0.45), { c: '#ffffff', s: '#e3f6f4' }, 'SX#', o.speed)
@@ -509,10 +513,11 @@ function boats(o: SceneOptions): string {
 @keyframes wr{from{transform:translateX(-${pw}px)}to{transform:translateX(0)}}`,
     body,
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
-function fireflies(o: SceneOptions): string {
+function fireflies(o: BuildOptions): string {
   const rnd = rng(53)
   const stars = Array.from({ length: area(160) }, () => ({ x: rnd() * W, y: rnd() * H * 0.35, ch: '·' }))
   let body = twinkles(stars, '#cfe9dc', 5, 9, o.speed, rnd)
@@ -580,10 +585,11 @@ function fireflies(o: SceneOptions): string {
 @keyframes gm{0%{opacity:1}4.86%{opacity:0}45.15%{opacity:1}54.86%{opacity:0}95.16%{opacity:1}}`,
     body,
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
-function moon(o: SceneOptions): string {
+function moon(o: BuildOptions): string {
   const rnd = rng(67)
   const stars = Array.from({ length: area(55) }, () => {
     const pick = rnd()
@@ -626,6 +632,7 @@ function moon(o: SceneOptions): string {
 @media (max-aspect-ratio:1/1){.moon{transform:translateX(-260px)}}`,
     body,
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
@@ -838,7 +845,7 @@ function along(path: string, secs: number, speed: number, inner: string, begin =
   )
 }
 
-function honu(o: SceneOptions): string {
+function honu(o: BuildOptions): string {
   const rnd = rng(79)
   const P = {
     turtleA: (t: number): [number, number] => [972 + 1080 * Math.cos(HWW * t + 0.3), 860 + 640 * Math.sin(HWW * t + 0.3) + 140 * Math.sin(2 * HWW * t)],
@@ -970,15 +977,21 @@ function honu(o: SceneOptions): string {
 @keyframes fin{from{transform:translateY(-8px)}to{transform:translateY(8px)}}`,
     body,
     veil: o.veil,
+    veilColor: o.veilColor,
   })
 }
 
-const BUILDERS: Record<SceneId, (o: SceneOptions) => string> = { honu, clouds, koi, jelly, boats, fireflies, moon }
+type BuildOptions = SceneOptions & { veilColor: string }
+
+const BUILDERS: Record<SceneId, (o: BuildOptions) => string> = { honu, clouds, koi, jelly, boats, fireflies, moon }
 
 /** The scene's SVG document, at most 131072 characters. */
 export function buildScene(id: SceneId, o: SceneOptions): string {
+  const dark = SCENES.find(s => s.id === id)!.scheme === 'dark'
   return BUILDERS[id]({
     speed: Math.min(3, Math.max(0.25, o.speed)),
     veil: Math.min(0.8, Math.max(0, o.veil)),
+    // The veil fades toward the page of the scene's own mode, which the scene sets.
+    veilColor: dark ? '#0c0c10' : '#fafafc',
   })
 }

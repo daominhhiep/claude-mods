@@ -36,7 +36,7 @@ test('the session starts with the chosen scene and frosted panels', { options: {
   })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
-  expect(sets).toEqual([{ backdrop: { scene: 'koi', glass: { blur: 12 } } }])
+  expect(sets).toEqual([{ backdrop: { scene: 'koi', glass: { blur: 12 } }, overrideColorScheme: 'dark' }])
 })
 
 test('off sets no look at all', { options: { scene: 'off', glass: false } }, async ($, on) => {
@@ -66,13 +66,13 @@ test('/wallpaper switches the scene for the session and explains a wrong name', 
     return { value: { isDrawn: false, reason: 'cleared' } }
   })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'honu', glass: { blur: 12 } })
+  expect(sets.at(-1)).toEqual({ backdrop: { scene: 'honu', glass: { blur: 12 } }, overrideColorScheme: 'light' })
 
   const listed = await $.command.run({ command: 'wallpaper', args: '' } as never)
   expect(listed.text).toContain('Turtle lagoon')
 
   const moon = await $.command.run({ command: 'wallpaper', args: 'Moon' } as never)
-  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: { blur: 12 } })
+  expect(sets.at(-1)).toEqual({ backdrop: { scene: 'moon', glass: { blur: 12 } }, overrideColorScheme: 'dark' })
   expect(moon.text).toContain('desktop and mobile apps')
 
   const wrong = await $.command.run({ command: 'wallpaper', args: 'sunset' } as never)

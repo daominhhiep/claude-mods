@@ -6,15 +6,17 @@ Adapted from the [claude-wallpaper](https://github.com/daominhhiep/c-theme/tree/
 
 ## Scenes
 
-| `scene` | Name | What moves |
-| --- | --- | --- |
-| `honu` | Turtle lagoon | Three sea turtles, a manta, two dolphins, a school of yellow tangs and a deep whale loop over a turquoise reef; flowers drift down; sunlight bands and ripples cross the water |
-| `clouds` | Drifting clouds | Clouds of `S X #` drift across a blue sky, the near ones faster |
-| `koi` | Koi pond | Koi swim both ways in slow waves between bobbing lily pads; glints twinkle |
-| `jelly` | Jellyfish | Jellyfish pulse and rise with swaying tentacles; plankton drifts up |
-| `boats` | Paper boats | Paper boats bob along a rippling sea under far clouds |
-| `fireflies` | Fireflies | Fireflies wander and blink with a glow over a meadow whose tips lean in a travelling wave |
-| `moon` | Moonlit night | A crescent moon with a halo, twinkling stars, shooting stars and passing clouds |
+| `scene` | Name | What moves | Mode |
+| --- | --- | --- | --- |
+| `honu` | Turtle lagoon | Three sea turtles, a manta, two dolphins, a school of yellow tangs and a deep whale loop over a turquoise reef; flowers drift down; sunlight bands and ripples cross the water | light |
+| `clouds` | Drifting clouds | Clouds of `S X #` drift across a blue sky, the near ones faster | light |
+| `koi` | Koi pond | Koi swim both ways in slow waves between bobbing lily pads; glints twinkle | dark |
+| `jelly` | Jellyfish | Jellyfish pulse and rise with swaying tentacles; plankton drifts up | dark |
+| `boats` | Paper boats | Paper boats bob along a rippling sea under far clouds | light |
+| `fireflies` | Fireflies | Fireflies wander and blink with a glow over a meadow whose tips lean in a travelling wave | dark |
+| `moon` | Moonlit night | A crescent moon with a halo, twinkling stars, shooting stars and passing clouds | dark |
+
+Each scene sets the app's mode it was painted for (`overrideColorScheme`), so text over it reads light on the night scenes and dark on the bright ones, whatever mode you use. The desktop app ignores this for now.
 
 The turtle lagoon is simplified from the extension's: creatures are drawn as shapes with glyphs over them and follow their paths whole, without the per-frame resampling into cells or the bubble trails.
 

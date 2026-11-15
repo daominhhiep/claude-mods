@@ -30,6 +30,8 @@ export const register: Register = (on, options) => {
 
   const look = (id: SceneId): ThemeSetArgs => ({
     backdrop: { scene: id, glass: glass ? { blur: 12 } : false },
+    // Text follows the scene, not the person's mode: light on a night sky, dark on a bright one.
+    overrideColorScheme: SCENES.find(s => s.id === id)!.scheme,
   })
 
   on('session.start', async ($, e, next) => {
