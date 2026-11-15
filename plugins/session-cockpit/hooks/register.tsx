@@ -178,14 +178,15 @@ const THEME_KEY = 'theme'
 const WALLPAPER_KEY = 'wallpaper'
 const WALLPAPER_BLUR_KEY = 'wallpaperBlur'
 
-// The wallpaper's look: a moving scene, its panels frosted only when the person
+// The wallpaper's look: a moving scene under see-through panels (no glass at
+// all leaves the composer's panel solid white), blurred only when the person
 // asks, or a still gradient the app paints itself; either way, the mode it was
 // painted for.
 type WallpaperId = SceneId | GroundId
 const isWallpaperId = (id: unknown): id is WallpaperId => isSceneId(id) || isGroundId(id)
 const wallpaperLook = (id: WallpaperId, blur: boolean): ThemeSetArgs => {
   if (isSceneId(id)) {
-    return { backdrop: { scene: id, glass: blur ? { blur: 12 } : false }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
+    return { backdrop: { scene: id, glass: { blur: blur ? 12 : 0 } }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
   }
   const g = GROUNDS.find(x => x.id === id)!
   return {
