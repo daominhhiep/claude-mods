@@ -172,6 +172,8 @@ declare module 'claude-code' {
       wallpaper: string
       /** Whether the app frosts the chat panels over a moving wallpaper. */
       wallpaperBlur: boolean
+      /** The style group the Wallpaper page shows, '' for the chosen wallpaper's own. */
+      wallpaperGroup: string
       effects: {
         fireworks: boolean
         flash: boolean

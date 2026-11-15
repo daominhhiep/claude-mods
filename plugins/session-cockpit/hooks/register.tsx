@@ -132,6 +132,7 @@ const paneFrame = atom({ plugin: 'session-cockpit', key: 'paneFrame' } as const,
 const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude')
 const wallpaper = atom({ plugin: 'session-cockpit', key: 'wallpaper' } as const, 'off')
 const wallpaperBlur = atom({ plugin: 'session-cockpit', key: 'wallpaperBlur' } as const, false)
+const wallpaperGroup = atom({ plugin: 'session-cockpit', key: 'wallpaperGroup' } as const, '')
 const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEFAULT_EFFECTS)
 const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
 const flashAt = atom({ plugin: 'session-cockpit', key: 'flash' } as const, null)
@@ -3459,6 +3460,14 @@ export const register: Register = (on, options) => {
         )
       }
       const blur = await read($, wallpaperBlur)
+      // One style group at a time: every preview at once is more than the app
+      // takes in one drawing, so the pane would show nothing.
+      const groups = [
+        ...SCENE_GROUPS.map(g => ({ id: g.kind as string, title: g.title, ids: SCENES.filter(w => (w.kind ?? 'ascii') === g.kind).map(w => [w.id, w.name] as [WallpaperId, string]) })),
+        { id: 'still', title: 'Still', ids: GROUNDS.map(g => [g.id, g.name] as [WallpaperId, string]) },
+      ]
+      const picked = await read($, wallpaperGroup)
+      const shownGroup = groups.find(g => g.id === picked) ?? groups.find(g => g.ids.some(([id]) => id === scene)) ?? groups[0]!
       const toggleBlur = async () => {
         const next = !blur
         await update($, wallpaperBlur, () => next)
@@ -3512,23 +3521,15 @@ export const register: Register = (on, options) => {
             <Text color={paint('inactive')}>Behind every chat in the app, kept for every session</Text>
             {off}
             {blurRow}
-            {SCENE_GROUPS.map(g => (
-              <Box key={`wallpaper-group-${g.kind}`} flexDirection="column" gap={1}>
-                <Text color={paint('subtle')} bold>
+            <Box flexDirection="row" flexWrap="wrap" gap={1}>
+              {groups.map(g => (
+                <Button key={`wallpaper-style-${g.id}`} variant={g.id === shownGroup.id ? 'primary' : 'secondary'} onPress={() => update($, wallpaperGroup, () => g.id)}>
                   {g.title}
-                </Text>
-                <Box flexDirection="row" flexWrap="wrap" gap={1}>
-                  {SCENES.filter(w => (w.kind ?? 'ascii') === g.kind).map(w => wallpaperCard(w.id, w.name))}
-                </Box>
-              </Box>
-            ))}
-            <Box key="wallpaper-group-still" flexDirection="column" gap={1}>
-              <Text color={paint('subtle')} bold>
-                Still
-              </Text>
-              <Box flexDirection="row" flexWrap="wrap" gap={1}>
-                {GROUNDS.map(g => wallpaperCard(g.id, g.name))}
-              </Box>
+                </Button>
+              ))}
+            </Box>
+            <Box flexDirection="row" flexWrap="wrap" gap={1}>
+              {shownGroup.ids.map(([id, name]) => wallpaperCard(id, name))}
             </Box>
           </Box>
         )

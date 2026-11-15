@@ -613,11 +613,19 @@ test('the Wallpaper tab picks a wallpaper, kept for next time, and draws it behi
   expect(JSON.stringify(await ui.drawn())).not.toContain('Dawn glow preview')
   await ui.press({ key: 'tab-wallpaper' })
   expect(await ui.find({ type: 'Text', text: 'WALLPAPER' })).toBeDefined()
-  // Every wallpaper has a preview card in the app, the still grounds included.
-  const cards = JSON.stringify(await ui.drawn())
-  for (const name of ['Spiral galaxy', 'Dragon moon', 'Lantern festival', 'Turtle lagoon', 'Dawn glow']) expect(cards).toContain(`${name} preview`)
+  // Every wallpaper has a preview card in the app, one style group at a time,
+  // and no group is more than the app takes in one drawing.
+  const groups = ['nature', 'space', 'fantasy', 'anime', 'ancient', 'dreamy', 'ascii', 'still']
+  const names = { space: 'Spiral galaxy', fantasy: 'Dragon moon', ancient: 'Lantern festival', ascii: 'Turtle lagoon', still: 'Dawn glow' } as Record<string, string>
+  for (const g of groups) {
+    await ui.press({ key: `wallpaper-style-${g}` })
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn.length).toBeLessThan(200_000)
+    if (names[g]) expect(drawn).toContain(`${names[g]} preview`)
+  }
   await ui.press({ key: 'wallpaper-dusk' })
   expect(sets.at(-1)).toEqual({ backdrop: { gradient: { stops: ['#141233', '#33204d', '#6a3557'], angle: 180 } }, overrideColorScheme: 'dark' })
+  await ui.press({ key: 'wallpaper-style-ascii' })
   await ui.press({ key: 'wallpaper-moon' })
   expect(sets.at(-1)).toEqual({ backdrop: { scene: 'moon', glass: false }, overrideColorScheme: 'dark' })
   // Blur is off by default; the toggle frosts the chat over the picture and back.
