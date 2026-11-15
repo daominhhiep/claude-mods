@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionUsage, ThemeSetArgs } from 'claude-code'
 
 import type { PetFeeling, PetRange } from './rules'
-import { SCENES, buildScene, isSceneId } from './wallpaper'
-import type { SceneId } from './wallpaper'
+import { GROUNDS, SCENES, buildScene, isGroundId, isSceneId, wallpaperThumb } from './wallpaper'
+import type { GroundId, SceneId } from './wallpaper'
 
 import type {
   AgentCost,
@@ -175,16 +175,25 @@ const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
 const WALLPAPER_KEY = 'wallpaper'
 
-// The wallpaper's look: frosted panels over it, and the mode the scene was painted for.
-const wallpaperLook = (id: SceneId): ThemeSetArgs => ({
-  backdrop: { scene: id, glass: { blur: 12 } },
-  overrideColorScheme: SCENES.find(s => s.id === id)!.scheme,
-})
+// The wallpaper's look: a moving scene with frosted panels over it, or a still
+// gradient the app paints itself; either way, the mode it was painted for.
+type WallpaperId = SceneId | GroundId
+const isWallpaperId = (id: unknown): id is WallpaperId => isSceneId(id) || isGroundId(id)
+const wallpaperLook = (id: WallpaperId): ThemeSetArgs => {
+  if (isSceneId(id)) {
+    return { backdrop: { scene: id, glass: { blur: 12 } }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
+  }
+  const g = GROUNDS.find(x => x.id === id)!
+  return {
+    backdrop: { gradient: g.shape === 'radial' ? { stops: g.stops, shape: 'radial' } : { stops: g.stops, angle: g.angle ?? 180 } },
+    overrideColorScheme: g.scheme,
+  }
+}
 // Each scene's SVG, built once: it depends on nothing but the scene.
 const builtScenes = new Map<SceneId, string>()
 
-const WALLPAPER_CHOICES = ['off', ...SCENES.map(w => w.id)]
-const wallpaperName = (id: string) => (id === 'off' ? 'Off' : SCENES.find(w => w.id === id)?.name ?? id)
+const WALLPAPER_CHOICES = ['off', ...SCENES.map(w => w.id), ...GROUNDS.map(g => g.id)]
+const wallpaperName = (id: string) => (id === 'off' ? 'Off' : (SCENES.find(w => w.id === id) ?? GROUNDS.find(g => g.id === id))?.name ?? id)
 
 /**
  * Saves the wallpaper for every session and applies it now: a scene sets the
@@ -198,7 +207,7 @@ async function chooseWallpaper($: EngineInterface, id: string): Promise<{ isSave
   } catch {
     isSaved = false
   }
-  if (!isSceneId(id)) {
+  if (!isWallpaperId(id)) {
     await $.theme.clear()
     return { isSaved, isDrawn: false }
   }
@@ -343,7 +352,7 @@ async function loadSaved($: EngineInterface): Promise<void> {
     // Neither a reload nor /resume keeps a backdrop, so set it again here. Off sets
     // nothing: clearing here would take away another mod's look.
     const scene = await read($, wallpaper)
-    if (isSceneId(scene)) await $.theme.set(wallpaperLook(scene))
+    if (isWallpaperId(scene)) await $.theme.set(wallpaperLook(scene))
     const savedEffects = await $.store.get(EFFECTS_KEY)
     if (savedEffects !== undefined) await update($, effects, () => effectsFrom(savedEffects))
     const days = await $.settings.read({ key: 'cleanupPeriodDays' })
@@ -2023,9 +2032,12 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    const f = await read($, paneFrame)
     const allCosts = await read($, costs)
     const busy = allCosts.some(p => p.durationMs === null)
+    // The frame counter drives only the spinners, so the pane follows it only while
+    // work runs. At rest a redraw a second would rebuild every button under the
+    // pointer, and the app's hover highlight would blink with it.
+    const f = busy ? await read($, paneFrame) : 0
     // The groups keep to one row: every label when they fit, else the open
     // group named and the rest as icons, else icons alone.
     const group = GROUPS.find(g => g.tabs.some(t => t.id === current)) ?? GROUPS[0]!
@@ -2040,8 +2052,9 @@ export const register: Register = (on, options) => {
     const groupText = (g: (typeof GROUPS)[number]) =>
       tabMode === 'label' ? g.label : tabMode === 'mixed' && g === group ? `${g.icon} ${g.label}` : g.icon
 
-    // Three cards across the top: context, cost, working time.
-    await read($, tick)
+    // Three cards across the top: context, cost, working time. Settings are
+    // a place to press buttons, so they skip the five-second clock redraw.
+    if (group.id !== 'settings') await read($, tick)
     const nowHead = await $.clock.now()
     let usageHead: SessionUsage | null = null
     try {
@@ -3323,6 +3336,21 @@ export const register: Register = (on, options) => {
       const row = (t: (typeof THEMES)[number]) => {
         const shade = painter(t.id)
         const isOn = t.id === chosen
+        // A graphical surface draws a Button as its own native control, so the
+        // swatch goes beside it as a drawing, where its colors survive.
+        if (Svg !== undefined) {
+          const chips = swatch.map((k, i) => `<rect x="${i * 15}" y="1" width="12" height="12" rx="3" fill="${shade(k)}"/>`).join('')
+          return (
+            <Box key={`theme-row-${t.id}`} flexDirection="row" alignItems="center" columnGap={1}>
+              <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 87 14" width="87" height="14">${chips}</svg>`} alt={`${t.name} colors`} width={87} height={14} />
+              <Button key={`theme-${t.id}`} plain onPress={() => choose(t.id)}>
+                {`${isOn ? '◉' : '○'} ${themeStyle(t.id).mark} `}
+                <Text bold={isOn}>{t.name}</Text>
+              </Button>
+              {isNarrow ? null : <Text color={paint('inactive')} wrap="truncate-end">{t.note}</Text>}
+            </Box>
+          )
+        }
         return (
           <Button key={`theme-${t.id}`} plain onPress={() => choose(t.id)}>
             <Text color={shade(isOn ? 'claude' : 'subtle')} bold={isOn}>
@@ -3343,7 +3371,7 @@ export const register: Register = (on, options) => {
       const pickWallpaper = async (id: string) => {
         const done = await chooseWallpaper($, id)
         if (!done.isSaved) $.ui.toast('Wallpaper set for this session; it could not be saved for the next one.')
-        else if (isSceneId(id) && !done.isDrawn) $.ui.toast('Wallpaper saved. It shows in the Claude desktop and mobile apps.')
+        else if (isWallpaperId(id) && !done.isDrawn) $.ui.toast('Wallpaper saved. It shows in the Claude desktop and mobile apps.')
       }
       const wallpaperRow = (id: string, name: string) => {
         const isOn = id === scene
@@ -3358,44 +3386,101 @@ export const register: Register = (on, options) => {
           </Button>
         )
       }
+      // A card per wallpaper: a small still preview over its name, outlined when chosen.
+      const wallpaperCard = (id: WallpaperId, name: string) => {
+        const isOn = id === scene
+        return (
+          <Box key={`wallpaper-card-${id}`} flexDirection="column" alignItems="center" borderStyle="round" borderColor={isOn ? paint('claude') : paint('inactive')} padding={0}>
+            {Svg === undefined ? null : <Svg source={wallpaperThumb(id)} alt={`${name} preview`} width={136} height={82} />}
+            <Button key={`wallpaper-${id}`} plain onPress={() => pickWallpaper(id)}>
+              {isOn ? `◉ ${name}` : name}
+            </Button>
+          </Box>
+        )
+      }
       const groups = [
         { title: 'Your Claude Code theme', list: THEMES.filter(t => t.id === 'claude') },
         { title: 'For dark terminals', list: THEMES.filter(t => t.id !== 'claude' && t.isLight !== true) },
         { title: 'For light terminals', list: THEMES.filter(t => t.isLight === true) },
       ]
-      body = (
-        <Box flexDirection="column" gap={1}>
-          {heading('Theme', `${look.name} · saved for every session`)}
-          {preview}
-          <Box flexDirection="row" columnGap={1}>
-            <Button
-              key="theme-shuffle"
-              label="⤨ Surprise me"
-              onPress={() => {
-                const others = THEMES.filter(t => t.id !== chosen && t.id !== 'claude')
-                return choose(others[Math.floor(nowLook / 1000) % others.length]!.id)
-              }}
-            />
-            {chosen === 'claude' ? null : <Button key="theme-reset" label="Back to Claude" onPress={() => choose('claude')} />}
-          </Box>
-          {groups.map(g => (
-            <Box key={`theme-group-${g.title}`} flexDirection="column">
-              <Text color={paint('subtle')} bold>
-                {g.title}
-              </Text>
-              {g.list.map(row)}
-            </Box>
-          ))}
-          <Box key="wallpaper" flexDirection="column">
-            <Text color={paint('subtle')} bold>
-              Wallpaper
-            </Text>
-            <Text color={paint('inactive')}>Moving picture behind the chat, in the desktop and mobile apps</Text>
-            {wallpaperRow('off', 'Off')}
-            {SCENES.map(w => wallpaperRow(w.id, w.name))}
-          </Box>
+      const themeButtons = (
+        <Box flexDirection="row" columnGap={1}>
+          <Button
+            key="theme-shuffle"
+            label="⤨ Surprise me"
+            onPress={() => {
+              const others = THEMES.filter(t => t.id !== chosen && t.id !== 'claude')
+              return choose(others[Math.floor(nowLook / 1000) % others.length]!.id)
+            }}
+          />
+          {chosen === 'claude' ? null : <Button key="theme-reset" label="Back to Claude" onPress={() => choose('claude')} />}
         </Box>
       )
+      const themeGroups = groups.map(g => (
+        <Box key={`theme-group-${g.title}`} flexDirection="column" rowGap={Svg === undefined ? 0 : 'xs'}>
+          <Text color={paint('subtle')} bold>
+            {g.title}
+          </Text>
+          {g.list.map(row)}
+        </Box>
+      ))
+      const section = (title: string, hint: string) => (
+        <Box flexDirection="column">
+          <Text bold>{title.toUpperCase()}</Text>
+          <Text color={paint('inactive')}>{hint}</Text>
+        </Box>
+      )
+      body =
+        Svg === undefined ? (
+          <Box flexDirection="column" gap={1}>
+            {heading('Theme', `${look.name} · saved for every session`)}
+            {preview}
+            {themeButtons}
+            {themeGroups}
+            <Box key="wallpaper" flexDirection="column">
+              <Text color={paint('subtle')} bold>
+                Wallpaper
+              </Text>
+              <Text color={paint('inactive')}>Moving picture behind the chat, in the desktop and mobile apps</Text>
+              {wallpaperRow('off', 'Off')}
+              {SCENES.map(w => wallpaperRow(w.id, w.name))}
+              {GROUNDS.map(g => wallpaperRow(g.id, g.name))}
+            </Box>
+          </Box>
+        ) : (
+          // The app: the wallpaper first, since it is what the app adds, then the cockpit's colors.
+          <Box flexDirection="column" gap={1}>
+            {section('Wallpaper', `${wallpaperName(scene)} · behind every chat in the app`)}
+            <Text color={paint('subtle')} bold>
+              Illustrated
+            </Text>
+            <Box key="wallpaper-art" flexDirection="row" flexWrap="wrap" gap={1}>
+              {SCENES.filter(w => w.kind === 'art').map(w => wallpaperCard(w.id, w.name))}
+            </Box>
+            <Text color={paint('subtle')} bold>
+              Drawn in characters
+            </Text>
+            <Box key="wallpaper-ascii" flexDirection="row" flexWrap="wrap" gap={1}>
+              {SCENES.filter(w => w.kind !== 'art').map(w => wallpaperCard(w.id, w.name))}
+            </Box>
+            <Text color={paint('subtle')} bold>
+              Still
+            </Text>
+            <Box key="wallpaper-still" flexDirection="row" flexWrap="wrap" gap={1}>
+              {GROUNDS.map(g => wallpaperCard(g.id, g.name))}
+            </Box>
+            <Box flexDirection="row">
+              <Button key="wallpaper-off" dimColor={scene !== 'off'} onPress={() => pickWallpaper('off')}>
+                {scene === 'off' ? '◉ No wallpaper' : 'No wallpaper'}
+              </Button>
+            </Box>
+            {section('Cockpit colors', `${look.name} · saved for every session`)}
+            <Text color={paint('inactive')}>The colors of this panel and the band</Text>
+            {preview}
+            {themeButtons}
+            {themeGroups}
+          </Box>
+        )
     } else {
       const list = await read($, calls)
       const shown = list.slice(-Math.max(3, room - 2))
