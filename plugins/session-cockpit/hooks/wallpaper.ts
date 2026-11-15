@@ -3,13 +3,20 @@
 // backdrop, so all motion is declared up front and loops forever.
 // Pure functions only, so tests can build every scene directly.
 
-export const SCENE_IDS = ['honu', 'clouds', 'koi', 'jelly', 'boats', 'fireflies', 'moon'] as const
+export const SCENE_IDS = ['waves', 'hills', 'bokeh', 'glow', 'honu', 'clouds', 'koi', 'jelly', 'boats', 'fireflies', 'moon', 'rain', 'snow', 'aurora', 'sakura'] as const
 export type SceneId = (typeof SCENE_IDS)[number]
 
-/** `scheme` is the mode the scene is painted for, so text over it reads light on dark or dark on light. */
-export type SceneInfo = { id: SceneId; name: string; alt: string; scheme: 'light' | 'dark' }
+/**
+ * `scheme` is the mode the scene is painted for, so text over it reads light on dark or dark on light.
+ * `kind`: drawn in shapes and gradients, or in text glyphs.
+ */
+export type SceneInfo = { id: SceneId; name: string; alt: string; scheme: 'light' | 'dark'; kind?: 'art' | 'ascii' }
 
 export const SCENES: SceneInfo[] = [
+  { id: 'waves', name: 'Ocean waves', alt: 'Layered waves rolling under a soft sunset sky with a low sun', scheme: 'light', kind: 'art' },
+  { id: 'hills', name: 'Sunset hills', alt: 'Rolling violet hills under a glowing sunset, with birds gliding and stars coming out', scheme: 'dark', kind: 'art' },
+  { id: 'bokeh', name: 'City bokeh', alt: 'Soft out-of-focus lights in warm and cool colors drifting on a dark night', scheme: 'dark', kind: 'art' },
+  { id: 'glow', name: 'Pastel glow', alt: 'Large soft pastel color clouds slowly drifting and blending', scheme: 'light', kind: 'art' },
   { id: 'honu', name: 'Turtle lagoon', alt: 'Sea turtles, a manta, dolphins and a school of fish crossing a turquoise lagoon, drawn in characters', scheme: 'light' },
   { id: 'clouds', name: 'Drifting clouds', alt: 'White clouds drifting across a blue sky, drawn in characters', scheme: 'light' },
   { id: 'koi', name: 'Koi pond', alt: 'Koi swimming between lily pads in a green pond, drawn in characters', scheme: 'dark' },
@@ -17,6 +24,10 @@ export const SCENES: SceneInfo[] = [
   { id: 'boats', name: 'Paper boats', alt: 'Paper boats bobbing on a rippling sea under passing clouds, drawn in characters', scheme: 'light' },
   { id: 'fireflies', name: 'Fireflies', alt: 'Fireflies blinking over swaying grass at night, drawn in characters', scheme: 'dark' },
   { id: 'moon', name: 'Moonlit night', alt: 'A crescent moon, twinkling stars and passing clouds, drawn in characters', scheme: 'dark' },
+  { id: 'rain', name: 'Rainy city', alt: 'Slanting rain falling over a dark city skyline with lit windows, drawn in characters', scheme: 'dark' },
+  { id: 'snow', name: 'Snowfall', alt: 'Snow drifting down over pine trees and snowy hills at night, drawn in characters', scheme: 'dark' },
+  { id: 'aurora', name: 'Northern lights', alt: 'Green and violet northern lights waving above dark mountains under stars, drawn in characters', scheme: 'dark' },
+  { id: 'sakura', name: 'Cherry blossoms', alt: 'Pink petals drifting from a blossoming cherry branch on a pale pink sky, drawn in characters', scheme: 'light' },
 ]
 
 export function isSceneId(value: unknown): value is SceneId {
@@ -636,6 +647,366 @@ function moon(o: BuildOptions): string {
   })
 }
 
+// ---------- illustrated scenes ----------
+// Drawn in paths and soft gradients rather than glyphs. Soft light comes from
+// radial gradients, never a blur filter, so the motion stays cheap to paint.
+
+/** Six slow wandering loops, as keyframes w0..w5, reaching `reach` px from home. */
+function wanderCss(reach: number, seed: number): string {
+  const r = rng(seed)
+  let css = ''
+  for (let p = 0; p < 6; p++) {
+    const at = () => `translate(${Math.round((r() - 0.5) * 2 * reach)}px,${Math.round((r() - 0.5) * 1.4 * reach)}px)`
+    css += `@keyframes w${p}{0%,100%{transform:translate(0,0)}25%{transform:${at()}}50%{transform:${at()}}75%{transform:${at()}}}`
+  }
+  return css
+}
+
+/** A soft round light: a radial gradient from `color` at `alpha` to nothing. */
+const softGradient = (id: string, color: string, alpha: number) =>
+  `<radialGradient id="${id}"><stop offset="0" stop-color="${color}" stop-opacity="${alpha}"/><stop offset=".55" stop-color="${color}" stop-opacity="${r2(alpha * 0.45)}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient>`
+
+/** A filled band whose top edge is a sum of sines, `length` px long. */
+function ridgePath(length: number, top: number, bottom: number, parts: [amp: number, period: number, phase: number][]): string {
+  let d = `M0 ${bottom}`
+  for (let x = 0; x <= length; x += 16) {
+    let y = top
+    for (const [amp, period, phase] of parts) y += amp * Math.sin((TAU * x) / period + phase)
+    d += ` L${x} ${r1(y)}`
+  }
+  return `${d} L${length} ${bottom} Z`
+}
+
+function waves(o: BuildOptions): string {
+  // Each layer is two periods wide and slides one period, so it loops without a seam.
+  const layers = [
+    { y: 0.56, amp: 10, period: 520, fill: '#9fd3e6', secs: 46, dir: 1 },
+    { y: 0.63, amp: 14, period: 640, fill: '#6bb7d6', secs: 38, dir: -1 },
+    { y: 0.71, amp: 18, period: 760, fill: '#3f93bf', secs: 32, dir: 1 },
+    { y: 0.8, amp: 22, period: 880, fill: '#2a6f9e', secs: 27, dir: -1 },
+    { y: 0.9, amp: 26, period: 1000, fill: '#1b4f7a', secs: 23, dir: 1 },
+  ]
+  let css = ''
+  let body =
+    `<circle cx="${W * 0.68}" cy="${H * 0.5}" r="260" fill="url(#sunGlow)"/>` +
+    `<circle cx="${W * 0.68}" cy="${H * 0.5}" r="70" fill="#fff1d6"/>`
+  layers.forEach((l, i) => {
+    const length = W + l.period * 2
+    const parts: [number, number, number][] = [
+      [l.amp, l.period, i],
+      [l.amp * 0.35, l.period / 2, i * 2],
+    ]
+    css += `@keyframes wv${i}{from{transform:translateX(${l.dir > 0 ? -l.period : 0}px)}to{transform:translateX(${l.dir > 0 ? 0 : -l.period}px)}}`
+    body +=
+      `<g class="a" style="${anim(`wv${i}`, l.secs, o.speed, 0)}">` +
+      `<path d="${ridgePath(length, l.y * H, H, parts)}" fill="${l.fill}"/>` +
+      `<path d="${ridgePath(length, l.y * H - 2, l.y * H + 6, parts)}" fill="#ffffff" fill-opacity=".18"/></g>`
+  })
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#fde3c8', '#f6b9a8', '#a9cbe8'],
+    defs: softGradient('sunGlow', '#ffd9a0', 0.8),
+    css,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function hills(o: BuildOptions): string {
+  const rnd = rng(131)
+  const stars = Array.from({ length: 70 }, () => ({ x: rnd() * W, y: rnd() * H * 0.32, r: 0.8 + rnd() * 1.4 }))
+  let body = ''
+  for (let g = 0; g < 4; g++) {
+    const mine = stars.filter((_, i) => i % 4 === g)
+    body += `<g style="${anim('tw', 5 + g * 1.7, o.speed, rnd(), 'ease-in-out ')}">${mine.map(s => `<circle cx="${r1(s.x)}" cy="${r1(s.y)}" r="${r1(s.r)}" fill="#fff4e0"/>`).join('')}</g>`
+  }
+  body +=
+    `<circle cx="${W * 0.5}" cy="${H * 0.66}" r="420" fill="url(#sunGlow)"/>` +
+    `<circle cx="${W * 0.5}" cy="${H * 0.66}" r="96" fill="#ffd28a"/>`
+  // Birds: a few gliding Vs that cross the sky, each flapping gently.
+  for (let b = 0; b < 5; b++) {
+    const y = H * (0.2 + rnd() * 0.25)
+    const s = 0.7 + rnd() * 0.6
+    body +=
+      `<g class="a" style="${anim('dr', 70 + rnd() * 50, o.speed, rnd())}">` +
+      `<g transform="translate(0 ${r1(y)}) scale(${r2(s)})"><path class="f" style="${anim('flap', 1.6, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate" d="M0 0 Q8 -7 16 0 Q24 -7 32 0" fill="none" stroke="#3a1f3d" stroke-width="2.4" stroke-linecap="round"/></g></g>`
+  }
+  const ridges: [number, string, [number, number, number][]][] = [
+    [0.62, '#b0577a', [[34, 900, 0.4], [14, 380, 1.3]]],
+    [0.7, '#7d3d6b', [[40, 1100, 2.1], [12, 300, 0.2]]],
+    [0.79, '#4f2a57', [[30, 800, 3.3], [10, 260, 1.9]]],
+    [0.88, '#2a1838', [[26, 1300, 0.9], [8, 220, 2.6]]],
+  ]
+  for (const [y, fill, parts] of ridges) body += `<path d="${ridgePath(W, y * H, H, parts)}" fill="${fill}"/>`
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#24163f', '#6b2f5e', '#d4636c', '#f7a76a'],
+    defs: softGradient('sunGlow', '#ffb27a', 0.75),
+    css: `${DRIFT_CSS}${TWINKLE_CSS}@keyframes flap{from{transform:scaleY(1)}to{transform:scaleY(.4)}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function bokeh(o: BuildOptions): string {
+  const rnd = rng(149)
+  const colors = ['#ffb35c', '#ff6f91', '#7cc8ff', '#b28dff', '#ffe08a', '#5fe0c4']
+  const defs = colors.map((c, i) => softGradient(`b${i}`, c, 0.55)).join('')
+  let body = ''
+  for (let i = 0; i < 34; i++) {
+    const r = 30 + rnd() ** 2 * 130
+    body +=
+      `<g style="${anim(`w${i % 6}`, 50 + rnd() * 60, o.speed, rnd(), 'ease-in-out ')}">` +
+      `<circle cx="${r1(rnd() * W)}" cy="${r1(rnd() * H)}" r="${r1(r)}" fill="url(#b${i % colors.length})" style="${anim('pulse', 7 + rnd() * 8, o.speed, rnd(), 'ease-in-out ')}"/></g>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#0d0a1f', '#1a1033', '#0a1626'],
+    skyAngle: 'diagonal',
+    defs,
+    css: `${wanderCss(140, 151)}@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function glow(o: BuildOptions): string {
+  const rnd = rng(163)
+  const colors = ['#ffb8cc', '#b6d8ff', '#c6f2d4', '#ffe2a6', '#d8c4ff']
+  const defs = colors.map((c, i) => softGradient(`g${i}`, c, 0.95)).join('')
+  let body = ''
+  for (let i = 0; i < 9; i++) {
+    body +=
+      `<g style="${anim(`w${i % 6}`, 70 + rnd() * 60, o.speed, rnd(), 'ease-in-out ')}">` +
+      `<circle cx="${r1(rnd() * W)}" cy="${r1(rnd() * H)}" r="${r1(320 + rnd() * 220)}" fill="url(#g${i % colors.length})"/></g>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#fbf7ff', '#f3f1fb'],
+    defs,
+    css: wanderCss(260, 167),
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+// ---------- falling glyphs, shared by rain, snow and blossoms ----------
+
+type Fall = { name: string; layers: number; count: number; glyphs: string; fills: string[]; secs: [number, number]; dx: number }
+
+/**
+ * Layers of glyphs that fall and drift sideways. Each layer is drawn twice, a
+ * screen apart, so the fall loops without a seam; far layers are slower and fainter.
+ */
+function fall(f: Fall, speed: number, rnd: () => number): { css: string; body: string } {
+  let css = ''
+  let body = ''
+  for (let l = 0; l < f.layers; l++) {
+    const near = f.layers === 1 ? 1 : l / (f.layers - 1)
+    const dx = Math.round(f.dx * (0.5 + near * 0.5))
+    const span = Math.abs(dx)
+    const pts = Array.from({ length: Math.round(f.count / f.layers) }, () => ({
+      x: rnd() * (W + 2 * span) - span,
+      y: rnd() * H,
+      ch: f.glyphs[Math.floor(rnd() * f.glyphs.length)]!,
+    }))
+    const id = `${f.name}${l}`
+    const secs = f.secs[1] - (f.secs[1] - f.secs[0]) * near
+    css += `@keyframes ${id}f{from{transform:translate(0,0)}to{transform:translate(${dx}px,${H}px)}}`
+    body +=
+      `<g class="a" opacity="${r2(0.4 + 0.6 * near)}" style="${anim(`${id}f`, secs, speed, rnd())}">` +
+      `<g id="${id}">${scatter(pts, `fill="${f.fills[l % f.fills.length]}"`)}</g>` +
+      `<use href="#${id}" xlink:href="#${id}" x="${-dx}" y="${-H}"/></g>`
+  }
+  return { css, body }
+}
+
+function rain(o: BuildOptions): string {
+  const rnd = rng(71)
+  const drops = fall(
+    { name: 'r', layers: 4, count: area(60), glyphs: '//|', fills: ['#4f6d96', '#6f8fbb', '#9ab8dd', '#cfe2f7'], secs: [1.2, 2.8], dx: -160 },
+    o.speed,
+    rnd,
+  )
+
+  // A skyline along the foot, its windows lit at random and switching slowly.
+  const rows = 16
+  const top = ROWS - rows
+  const heights: number[] = []
+  while (heights.length < COLS) {
+    const w = 6 + Math.floor(rnd() * 10)
+    const h = 4 + Math.floor(rnd() * 12)
+    for (let k = 0; k < w; k++) heights.push(h)
+  }
+  const city = shape(COLS, rows, (x, y) => (rows - y <= heights[x]! ? 'b' : null))
+  const windows: { x: number; y: number; ch: string }[] = []
+  for (let x = 1; x < COLS; x += 2) {
+    for (let y = rows - heights[x]! + 1; y < rows - 1; y += 2) {
+      if (rnd() < 0.24) windows.push({ x: x * CW, y: (top + y + 1) * CH, ch: '▪' })
+    }
+  }
+  const body = spriteSvg(city, { b: '#0a1220' }, { glyphs: '#', y: top * CH }) + twinkles(windows, '#f5c46a', 6, 11, o.speed, rnd) + drops.body
+
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#0b1220', '#17263f', '#24395a'],
+    css: `${TWINKLE_CSS}${drops.css}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function snow(o: BuildOptions): string {
+  const rnd = rng(83)
+  const flakes = fall(
+    { name: 's', layers: 4, count: area(80), glyphs: '*.+·', fills: ['#8fa6cc', '#b7c9e8', '#dbe6f8', '#ffffff'], secs: [16, 34], dx: 90 },
+    o.speed,
+    rnd,
+  )
+
+  // Snowy hills along the foot, and pines standing in them.
+  const rows = 14
+  const top = ROWS - rows
+  const hill = (x: number) => 6 + 2.5 * Math.sin(x * 0.045 + 1) + 1.5 * Math.sin(x * 0.13)
+  const ground = shape(COLS, rows, (x, y) => {
+    const r = rows - y
+    const h = hill(x)
+    return r <= h ? (r > h - 1 ? 't' : 'g') : null
+  })
+  let trees = ''
+  for (let i = 0; i < 9; i++) {
+    const h = 5 + Math.floor(rnd() * 5)
+    const spr = shape(2 * h + 1, h + 2, (x, y) => (y < h ? (Math.abs(x - h) <= y ? 'n' : null) : x === h ? 'k' : null))
+    const col = Math.floor(rnd() * (COLS - spr.w))
+    const base = top + rows - Math.round(hill(col + h))
+    trees += spriteSvg(spr, { n: '#173246', k: '#3b2a22' }, { glyphs: '^A', x: col * CW, y: (base - spr.h + 1) * CH })
+  }
+  const body = trees + spriteSvg(ground, { g: '#c9d6ec', t: '#ffffff' }, { glyphs: '#', glyphAt: (_x, _y, k) => (k === 't' ? '=' : '#'), y: top * CH }) + flakes.body
+
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#0b1530', '#1b2e57', '#36507f'],
+    css: flakes.css,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function aurora(o: BuildOptions): string {
+  const rnd = rng(97)
+  const stars = Array.from({ length: area(120) }, () => ({ x: rnd() * W, y: rnd() * H * 0.75, ch: rnd() < 0.2 ? '+' : '·' }))
+  let body = twinkles(stars, '#dbe7ff', 6, 6, o.speed, rnd)
+
+  // Curtains of light: columns of glyphs hanging from a wavy line, fading downward,
+  // each band swaying and breathing on its own cycle.
+  const bands = [
+    { c: '#b48cff', y: 0.14, amp: 3, k: 0.04, len: 6, sway: 37 },
+    { c: '#58f0a8', y: 0.22, amp: 5, k: 0.05, len: 9, sway: 23 },
+    { c: '#3fd6c9', y: 0.32, amp: 4, k: 0.07, len: 7, sway: 31 },
+  ]
+  const fade = [0.95, 0.6, 0.35, 0.15]
+  for (const b of bands) {
+    const ph = rnd() * TAU
+    const levels: { x: number; y: number; ch: string }[][] = [[], [], [], []]
+    for (let c = -8; c < COLS + 8; c += 2) {
+      const y0 = b.y * ROWS + b.amp * Math.sin(c * b.k + ph) + 1.5 * Math.sin(c * b.k * 2.7)
+      const len = Math.max(2, Math.round(b.len * (0.6 + 0.4 * Math.sin(c * 0.11 + ph))))
+      for (let d = 0; d < len; d++) {
+        levels[Math.min(3, Math.floor((d / len) * 4))]!.push({ x: c * CW, y: (y0 + d) * CH, ch: d === 0 ? '!' : d % 2 ? '|' : ':' })
+      }
+    }
+    const inner = levels.map((pts, l) => scatter(pts, `fill="${b.c}" fill-opacity="${fade[l]}"`)).join('')
+    body +=
+      `<g class="f" style="${anim('au', b.sway, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">` +
+      `<g style="${anim('gl', b.sway * 0.4, o.speed, rnd(), 'ease-in-out ')}">${inner}</g></g>`
+  }
+
+  // Dark mountains with pale ridges along the foot.
+  const rows = 18
+  const ridge = (x: number) => 8 + 5 * Math.sin(x * 0.035 + 0.6) + 3 * Math.sin(x * 0.11 + 2) + 1.5 * Math.sin(x * 0.29)
+  const hills = shape(COLS, rows, (x, y) => {
+    const r = rows - y
+    const h = ridge(x)
+    return r <= h ? (r > h - 1.2 ? 'c' : 'm') : null
+  })
+  body += spriteSvg(hills, { m: '#04101c', c: '#3a5a78' }, { glyphs: '#', glyphAt: (_x, _y, k) => (k === 'c' ? '^' : '#'), y: (ROWS - rows) * CH })
+
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#01050e', '#061b2c', '#0a2b3a'],
+    css: `${TWINKLE_CSS}
+@keyframes au{from{transform:translateX(-50px) skewX(-5deg)}to{transform:translateX(50px) skewX(5deg)}}
+@keyframes gl{0%,100%{opacity:.55}50%{opacity:1}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function sakura(o: BuildOptions): string {
+  const rnd = rng(109)
+  const petals = fall(
+    { name: 'p', layers: 3, count: area(220), glyphs: '*@o.', fills: ['#f7b6c9', '#f08aab', '#e0577f'], secs: [16, 30], dx: 300 },
+    o.speed,
+    rnd,
+  )
+
+  // A blossoming branch reaching in from the top-left, and a smaller one from the top-right.
+  const bw = 70
+  const bh = 20
+  const main = (x: number) => 2 + x * 0.12 + 0.0015 * x * x
+  const twigs = [
+    { from: 22, to: 44, y: (x: number) => main(22) + (x - 22) * 0.45 },
+    { from: 36, to: 56, y: (x: number) => main(36) - (x - 36) * 0.25 },
+  ]
+  const blooms = [
+    ...[8, 18, 28, 40, 52, 60].map(x => [x, main(x)] as const),
+    ...[30, 43].map(x => [x, twigs[0]!.y(x)] as const),
+    ...[46, 55].map(x => [x, twigs[1]!.y(x)] as const),
+  ]
+  const branch = shape(bw, bh, (x, y) => {
+    for (const [bx, by] of blooms) {
+      const dx = (x - bx) / KX
+      const dy = y - by
+      const d = dx * dx + dy * dy
+      if (d <= 0.5) return 'c'
+      if (d <= 3.2) return 'f'
+    }
+    if (x < 62 && Math.abs(y - main(x)) < 0.7) return 'b'
+    for (const t of twigs) if (x >= t.from && x <= t.to && Math.abs(y - t.y(x)) < 0.6) return 'b'
+    return null
+  })
+  const colors = { b: '#6e4038', f: '#f392b2', c: '#fff2f6' }
+  const glyphAt = (x: number, y: number, k: string) => (k === 'b' ? '=' : k === 'c' ? 'o' : '@*'[hash(x, y) % 2]!)
+  const body =
+    spriteSvg(branch, colors, { glyphs: '@', glyphAt }) +
+    `<g opacity=".8">${spriteSvg(branch, colors, { glyphs: '@', glyphAt, flip: true, x: W - bw * CW * 0.8, y: -6 * CH })}</g>` +
+    petals.body
+
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#fff6f8', '#fde3ec', '#f9cddb'],
+    css: petals.css,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
 // ---------- the turtle lagoon ----------
 // A top-down reef. Creatures are drawn from ellipses, sampled onto a coarse cell
 // grid and written as glyphs, then sent along looping paths with SMIL.
@@ -983,7 +1354,7 @@ function honu(o: BuildOptions): string {
 
 type BuildOptions = SceneOptions & { veilColor: string }
 
-const BUILDERS: Record<SceneId, (o: BuildOptions) => string> = { honu, clouds, koi, jelly, boats, fireflies, moon }
+const BUILDERS: Record<SceneId, (o: BuildOptions) => string> = { waves, hills, bokeh, glow, honu, clouds, koi, jelly, boats, fireflies, moon, rain, snow, aurora, sakura }
 
 /** The scene's SVG document, at most 131072 characters. */
 export function buildScene(id: SceneId, o: SceneOptions): string {
@@ -994,4 +1365,92 @@ export function buildScene(id: SceneId, o: SceneOptions): string {
     // The veil fades toward the page of the scene's own mode, which the scene sets.
     veilColor: dark ? '#0c0c10' : '#fafafc',
   })
+}
+
+// ---------- still grounds ----------
+// A gradient the app paints itself: no scene, no hook, nothing moving.
+
+export const GROUND_IDS = ['dawn', 'dusk', 'mist', 'ink'] as const
+export type GroundId = (typeof GROUND_IDS)[number]
+type Hex = `#${string}`
+export type GroundInfo = {
+  id: GroundId
+  name: string
+  scheme: 'light' | 'dark'
+  stops: Hex[]
+  /** Degrees as in CSS, 180 runs down; ignored for a radial ground. */
+  angle?: number
+  shape?: 'radial'
+}
+
+export const GROUNDS: GroundInfo[] = [
+  { id: 'dawn', name: 'Dawn glow', scheme: 'light', stops: ['#fde8d7', '#f7cfd0', '#dccdf0'], angle: 180 },
+  { id: 'mist', name: 'Morning mist', scheme: 'light', stops: ['#ffffff', '#e3eaf2'], shape: 'radial' },
+  { id: 'dusk', name: 'Dusk', scheme: 'dark', stops: ['#141233', '#33204d', '#6a3557'], angle: 180 },
+  { id: 'ink', name: 'Deep ink', scheme: 'dark', stops: ['#1b2133', '#0b0d14'], shape: 'radial' },
+]
+
+export function isGroundId(value: unknown): value is GroundId {
+  return typeof value === 'string' && (GROUND_IDS as readonly string[]).includes(value)
+}
+
+// ---------- previews for the picker ----------
+// A small still card per wallpaper: its sky and a few of its glyphs. A few
+// hundred characters each, so the picker can show them all at every redraw.
+
+type ThumbLine = [x: number, y: number, fill: string, text: string, size?: number]
+type Thumb = { sky: string[]; lines: ThumbLine[] }
+
+const THUMBS: Record<SceneId, Thumb> = {
+  // Illustrated scenes preview as themselves (see wallpaperThumb); these are unused.
+  waves: { sky: ['#fde3c8', '#a9cbe8'], lines: [] },
+  hills: { sky: ['#24163f', '#f7a76a'], lines: [] },
+  bokeh: { sky: ['#0d0a1f', '#0a1626'], lines: [] },
+  glow: { sky: ['#fbf7ff', '#f3f1fb'], lines: [] },
+  honu: { sky: ['#b2f4e8', '#4ad6d6', '#1aa8ca', '#0e80b6'], lines: [[12, 24, '#f2fffd', '~  ~~   ~   ~~'], [58, 56, '#2f6b4a', '<(##)>', 14], [16, 84, '#ffd166', '><>    ><>']] },
+  clouds: { sky: ['#4aa8ec', '#bfe4fd'], lines: [[10, 30, '#ffffff', '.-~~-.', 13], [82, 52, '#ffffff', '.-~~~-.', 13], [28, 82, '#eaf6ff', '.-~-.']] },
+  koi: { sky: ['#1f7a63', '#0d4a44', '#082f2d'], lines: [[14, 32, '#ff7a2b', '><(((°>', 13], [80, 60, '#fff1e2', '<°)))><', 13], [40, 86, '#3f9b5a', '( O )']] },
+  jelly: { sky: ['#24308a', '#0b1240', '#05081f'], lines: [[24, 34, '#ff9de2', '.-^-.', 13], [26, 48, '#ff9de2', '):(:'], [96, 58, '#7fe7ff', '.-^-.', 13], [98, 72, '#7fe7ff', ':):(']] },
+  boats: { sky: ['#c4f4ef', '#72d4d6', '#1e8fa6'], lines: [[88, 24, '#ffffff', '.-~-.'], [36, 58, '#ffffff', ' |\\', 13], [36, 72, '#ffffff', '\\__/', 13], [100, 76, '#ff8b7b', '\\_/'], [0, 90, '#f2fffd', '~-~~-~~-~~-~~-~~-~~-~~-~~-~']] },
+  fireflies: { sky: ['#06120f', '#0b2a22', '#0f3a2c'], lines: [[24, 32, '#f3ffb0', '•     •'], [70, 56, '#f3ffb0', '•   •'], [0, 92, '#1d7a4c', '|/|\\||/|\\|/|||\\|/|\\|/||/|\\|/|']] },
+  moon: { sky: ['#070c33', '#111d63', '#22348f'], lines: [[106, 44, '#fff3c9', '(', 34], [14, 28, '#dfe6ff', '·  +   ·'], [8, 78, '#7d8ce6', '.-~~-.', 13]] },
+  rain: { sky: ['#0b1220', '#17263f', '#24395a'], lines: [[8, 26, '#9ab8dd', '/   /   /  /'], [26, 50, '#cfe2f7', ' /   /   /'], [0, 92, '#f5c46a', ' ▪ ▪   ▪  ▪ ▪   ▪ ▪  ▪']] },
+  snow: { sky: ['#0b1530', '#1b2e57', '#36507f'], lines: [[10, 26, '#ffffff', '*  .  *   .  *'], [20, 50, '#dbe6f8', ' .   *   .  *'], [30, 80, '#5d7f98', '^       ^', 15], [0, 94, '#ffffff', '========================']] },
+  aurora: { sky: ['#01050e', '#061b2c', '#0a2b3a'], lines: [[0, 30, '#b48cff', ':|:|:|:|:|:|:|:|:|:|:|:|'], [0, 46, '#58f0a8', '!|:!|:!|:!|:!|:!|:!|:!|:!|'], [0, 92, '#3a5a78', '/\\/\\  /\\/\\/\\  /\\/\\  /\\']] },
+  sakura: { sky: ['#fff6f8', '#fde3ec', '#f9cddb'], lines: [[2, 26, '#6e4038', '=========='], [8, 18, '#f392b2', '@*@  *@'], [56, 50, '#f08aab', '*   @   *'], [24, 80, '#e0577f', '.   *   o']] },
+}
+
+const TW = 160
+const TH = 96
+
+const artThumbs = new Map<SceneId, string>()
+
+/** A small preview of a wallpaper, for the picker. */
+export function wallpaperThumb(id: SceneId | GroundId): string {
+  // An illustrated scene is only a few kilobytes, so it previews as itself.
+  if (!isGroundId(id) && SCENES.find(s => s.id === id)?.kind === 'art') {
+    let art = artThumbs.get(id)
+    if (art === undefined) {
+      art = buildScene(id, { speed: 1, veil: 0 })
+      artThumbs.set(id, art)
+    }
+    return art
+  }
+  let defs: string
+  let body = ''
+  if (isGroundId(id)) {
+    const g = GROUNDS.find(x => x.id === id)!
+    const stops = g.stops.map((c, i) => `<stop offset="${r2(i / Math.max(1, g.stops.length - 1))}" stop-color="${c}"/>`).join('')
+    defs = g.shape === 'radial' ? `<radialGradient id="g">${stops}</radialGradient>` : `<linearGradient id="g" x1="0" y1="0" x2="0" y2="1">${stops}</linearGradient>`
+  } else {
+    const t = THUMBS[id]
+    const stops = t.sky.map((c, i) => `<stop offset="${r2(i / Math.max(1, t.sky.length - 1))}" stop-color="${c}"/>`).join('')
+    defs = `<linearGradient id="g" x1="0" y1="0" x2="0" y2="1">${stops}</linearGradient>`
+    body = t.lines.map(([x, y, fill, text, size]) => `<text x="${x}" y="${y}" fill="${fill}"${size ? ` font-size="${size}"` : ''}>${esc(text)}</text>`).join('')
+  }
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${TW} ${TH}" width="${TW}" height="${TH}" xml:space="preserve">` +
+    `<style>text{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11px;white-space:pre}</style>` +
+    `<defs>${defs}</defs><rect width="${TW}" height="${TH}" rx="8" fill="url(#g)"/>${body}</svg>`
+  )
 }
