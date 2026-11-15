@@ -192,6 +192,10 @@ const wallpaperLook = (id: WallpaperId): ThemeSetArgs => {
 // Each scene's SVG, built once: it depends on nothing but the scene.
 const builtScenes = new Map<SceneId, string>()
 // Claude Code's default dark colors, for the Claude theme's chips.
+// Wallpaper preview cards, small enough that two or three sit in a row.
+const THUMB_W = 112
+const THUMB_H = 64
+
 const CLAUDE_CHIPS: Record<string, string> = { claude: '#d77757', success: '#4eba65', warning: '#ffc107', error: '#ff6b80', suggestion: '#b1b9f9', permission: '#b1b9f9' }
 
 const WALLPAPER_CHOICES = ['off', ...SCENES.map(w => w.id), ...GROUNDS.map(g => g.id)]
@@ -3424,14 +3428,27 @@ export const register: Register = (on, options) => {
           </Button>
         )
       }
-      // A card per wallpaper: a small preview over its name, outlined when chosen.
+      // A card per wallpaper: a small preview over a real button with its name.
+      // Only a Button takes a press, so the button is drawn as one, filled when
+      // chosen, and the whole card lights up under the pointer.
       const wallpaperCard = (id: WallpaperId, name: string) => {
         const isOn = id === scene
         return (
-          <Box key={`wallpaper-card-${id}`} flexDirection="column" alignItems="center" borderStyle="round" borderColor={isOn ? paint('claude') : paint('inactive')} overflow="hidden">
-            {Svg === undefined ? null : <Svg source={wallpaperThumb(id)} alt={`${name} preview`} width={136} height={82} />}
-            <Button key={`wallpaper-${id}`} plain onPress={() => pickWallpaper(id)}>
-              {isOn ? `◉ ${name}` : name}
+          <Box
+            key={`wallpaper-card-${id}`}
+            flexDirection="column"
+            alignItems="center"
+            gap={1}
+            padding={1}
+            borderStyle="round"
+            borderColor={isOn ? paint('claude') : paint('inactive')}
+            borderDimColor={!isOn}
+            hover={{ borderColor: paint('claude'), borderDimColor: false }}
+            overflow="hidden"
+          >
+            {Svg === undefined ? null : <Svg source={wallpaperThumb(id)} alt={`${name} preview`} width={THUMB_W} height={THUMB_H} />}
+            <Button key={`wallpaper-${id}`} variant={isOn ? 'primary' : 'secondary'} onPress={() => pickWallpaper(id)}>
+              {isOn ? `✓ ${name}` : name}
             </Button>
           </Box>
         )
