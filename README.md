@@ -138,6 +138,16 @@ claude plugin validate plugins/session-cockpit
 claude plugin test plugins/session-cockpit
 ```
 
+## ascii-wallpaper
+
+Animated wallpapers drawn in characters behind the conversation in the Claude desktop and mobile apps, with frosted panels over them: a turtle lagoon, drifting clouds, a koi pond, jellyfish, paper boats, fireflies and a moonlit night.
+
+```
+/plugin install ascii-wallpaper --marketplace daominhhiep/claude-mods
+```
+
+`/wallpaper <scene>` switches the scene for a session. Scenes, options and details: [plugins/ascii-wallpaper](plugins/ascii-wallpaper/README.md).
+
 ## Privacy
 
 Session Cockpit has no server and sends nothing to its author. See its [privacy policy](plugins/session-cockpit/PRIVACY.md).
