@@ -620,6 +620,11 @@ test('the Wallpaper tab picks a wallpaper, kept for next time, and draws it behi
   expect(sets.at(-1)).toEqual({ backdrop: { gradient: { stops: ['#141233', '#33204d', '#6a3557'], angle: 180 } }, overrideColorScheme: 'dark' })
   await ui.press({ key: 'wallpaper-moon' })
   expect(sets.at(-1)).toEqual({ backdrop: { scene: 'moon', glass: false }, overrideColorScheme: 'dark' })
+  // Blur is off by default; the toggle frosts the chat over the picture and back.
+  await ui.press({ key: 'wallpaper-blur' })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: { blur: 12 } })
+  await ui.press({ key: 'wallpaper-blur' })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'moon', glass: false })
   await ui.press({ key: 'wallpaper-clouds' })
   expect(sets.at(-1)?.overrideColorScheme).toBe('light')
   await ui.unmount()

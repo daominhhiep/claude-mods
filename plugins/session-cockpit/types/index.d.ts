@@ -170,6 +170,8 @@ declare module 'claude-code' {
       theme: string
       /** The app backdrop, a wallpaper scene id or 'off'. */
       wallpaper: string
+      /** Whether the app frosts the chat panels over a moving wallpaper. */
+      wallpaperBlur: boolean
       effects: {
         fireworks: boolean
         flash: boolean
