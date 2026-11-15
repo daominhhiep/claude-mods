@@ -3,20 +3,42 @@
 // backdrop, so all motion is declared up front and loops forever.
 // Pure functions only, so tests can build every scene directly.
 
-export const SCENE_IDS = ['waves', 'hills', 'bokeh', 'glow', 'honu', 'clouds', 'koi', 'jelly', 'boats', 'fireflies', 'moon', 'rain', 'snow', 'aurora', 'sakura'] as const
+export const SCENE_IDS = ['waves', 'hills', 'forest', 'lake', 'galaxy', 'planets', 'islands', 'castle', 'summer', 'starry', 'pyramids', 'lanterns', 'bokeh', 'glow', 'honu', 'clouds', 'koi', 'jelly', 'boats', 'fireflies', 'moon', 'rain', 'snow', 'aurora', 'sakura'] as const
 export type SceneId = (typeof SCENE_IDS)[number]
 
 /**
  * `scheme` is the mode the scene is painted for, so text over it reads light on dark or dark on light.
  * `kind`: drawn in shapes and gradients, or in text glyphs.
  */
-export type SceneInfo = { id: SceneId; name: string; alt: string; scheme: 'light' | 'dark'; kind?: 'art' | 'ascii' }
+export type SceneKind = 'nature' | 'space' | 'fantasy' | 'anime' | 'ancient' | 'dreamy' | 'ascii'
+export type SceneInfo = { id: SceneId; name: string; alt: string; scheme: 'light' | 'dark'; kind?: SceneKind }
+
+/** The picker's groups, in order; a scene with no kind is drawn in characters. */
+export const SCENE_GROUPS: { kind: SceneKind; title: string }[] = [
+  { kind: 'nature', title: 'Nature' },
+  { kind: 'space', title: 'Space' },
+  { kind: 'fantasy', title: 'Fantasy' },
+  { kind: 'anime', title: 'Anime skies' },
+  { kind: 'ancient', title: 'Ancient lands' },
+  { kind: 'dreamy', title: 'Dreamy' },
+  { kind: 'ascii', title: 'Drawn in characters' },
+]
 
 export const SCENES: SceneInfo[] = [
-  { id: 'waves', name: 'Ocean waves', alt: 'Layered waves rolling under a soft sunset sky with a low sun', scheme: 'light', kind: 'art' },
-  { id: 'hills', name: 'Sunset hills', alt: 'Rolling violet hills under a glowing sunset, with birds gliding and stars coming out', scheme: 'dark', kind: 'art' },
-  { id: 'bokeh', name: 'City bokeh', alt: 'Soft out-of-focus lights in warm and cool colors drifting on a dark night', scheme: 'dark', kind: 'art' },
-  { id: 'glow', name: 'Pastel glow', alt: 'Large soft pastel color clouds slowly drifting and blending', scheme: 'light', kind: 'art' },
+  { id: 'waves', name: 'Ocean waves', alt: 'Layered waves rolling under a soft sunset sky with a low sun', scheme: 'light', kind: 'nature' },
+  { id: 'hills', name: 'Sunset hills', alt: 'Rolling violet hills under a glowing sunset, with birds gliding and stars coming out', scheme: 'dark', kind: 'nature' },
+  { id: 'forest', name: 'Misty forest', alt: 'Rows of pine trees fading into morning mist, with sunbeams slanting through', scheme: 'light', kind: 'nature' },
+  { id: 'lake', name: 'Mountain lake', alt: 'Snowy peaks mirrored in a still lake at dusk, with stars and soft ripples', scheme: 'dark', kind: 'nature' },
+  { id: 'galaxy', name: 'Spiral galaxy', alt: 'A glowing spiral galaxy turning slowly among twinkling stars', scheme: 'dark', kind: 'space' },
+  { id: 'planets', name: 'Ringed planet', alt: 'A large ringed planet with a small moon circling it, a far blue planet and stars', scheme: 'dark', kind: 'space' },
+  { id: 'islands', name: 'Floating islands', alt: 'Grassy islands floating in a bright sky, with waterfalls pouring from their edges and drifting clouds', scheme: 'light', kind: 'fantasy' },
+  { id: 'castle', name: 'Dragon moon', alt: 'A castle on a cliff under a huge moon as a dragon glides across the night sky', scheme: 'dark', kind: 'fantasy' },
+  { id: 'summer', name: 'Summer sky', alt: 'Towering summer clouds in a deep blue sky over the sea, with power lines and a jet trail', scheme: 'light', kind: 'anime' },
+  { id: 'starry', name: 'Comet night', alt: 'A bright comet and shooting stars over a sleeping hillside town at twilight', scheme: 'dark', kind: 'anime' },
+  { id: 'pyramids', name: 'Desert pyramids', alt: 'Pyramids and dunes at sunset with a camel caravan crossing slowly', scheme: 'light', kind: 'ancient' },
+  { id: 'lanterns', name: 'Lantern festival', alt: 'Warm paper lanterns rising past a pagoda into the night sky over still water', scheme: 'dark', kind: 'ancient' },
+  { id: 'bokeh', name: 'City bokeh', alt: 'Soft out-of-focus lights in warm and cool colors drifting on a dark night', scheme: 'dark', kind: 'dreamy' },
+  { id: 'glow', name: 'Pastel glow', alt: 'Large soft pastel color clouds slowly drifting and blending', scheme: 'light', kind: 'dreamy' },
   { id: 'honu', name: 'Turtle lagoon', alt: 'Sea turtles, a manta, dolphins and a school of fish crossing a turquoise lagoon, drawn in characters', scheme: 'light' },
   { id: 'clouds', name: 'Drifting clouds', alt: 'White clouds drifting across a blue sky, drawn in characters', scheme: 'light' },
   { id: 'koi', name: 'Koi pond', alt: 'Koi swimming between lily pads in a green pond, drawn in characters', scheme: 'dark' },
@@ -798,6 +820,443 @@ function glow(o: BuildOptions): string {
   })
 }
 
+// ---------- more illustrated scenes: nature, space, fantasy, anime skies, ancient lands ----------
+
+const STARS_CSS = TWINKLE_CSS
+const FLOAT_CSS = `@keyframes bobY{from{transform:translateY(-10px)}to{transform:translateY(10px)}}`
+
+/** Little round stars in `groups` that twinkle out of step. */
+function starDots(n: number, top: number, bottom: number, fill: string, speed: number, rnd: () => number, groups = 4): string {
+  const stars = Array.from({ length: n }, () => ({ x: rnd() * W, y: top + rnd() * (bottom - top), r: 0.6 + rnd() * 1.5 }))
+  let out = ''
+  for (let g = 0; g < groups; g++) {
+    const mine = stars.filter((_, i) => i % groups === g)
+    out += `<g style="${anim('tw', 4 + g * 1.6, speed, rnd(), 'ease-in-out ')}">${mine.map(s => `<circle cx="${r1(s.x)}" cy="${r1(s.y)}" r="${r1(s.r)}" fill="${fill}"/>`).join('')}</g>`
+  }
+  return out
+}
+
+/** A row of pines standing on `base`, as one path, with the ground below filled. */
+function pineRow(base: number, height: number, fill: string, rnd: () => number): string {
+  let d = ''
+  for (let x = -30; x < W + 60; x += 26 + rnd() * 34) {
+    const h = height * (0.65 + rnd() * 0.5)
+    const w = h * 0.42
+    for (let t = 0; t < 3; t++) {
+      const top = base - h + (t * h) / 4
+      const bot = base - h * 0.15 + (t * h) / 10 - (2 - t) * h * 0.18
+      const half = (w / 2) * (0.6 + t * 0.25)
+      d += `M${r1(x - half)} ${r1(bot)} L${r1(x)} ${r1(top)} L${r1(x + half)} ${r1(bot)} Z`
+    }
+  }
+  return `<path d="${d}" fill="${fill}"/><rect x="0" y="${r1(base - 4)}" width="${W}" height="${r1(H - base + 4)}" fill="${fill}"/>`
+}
+
+/** Jagged peaks along `base`, as a closed path. */
+function peaksPath(base: number, height: number, rnd: () => number): string {
+  let d = `M0 ${base}`
+  let x = 0
+  while (x < W) {
+    const up = x + 40 + rnd() * 90
+    const down = up + 40 + rnd() * 90
+    d += ` L${r1(up)} ${r1(base - height * (0.35 + rnd() * 0.65))} L${r1(down)} ${r1(base - height * rnd() * 0.3)}`
+    x = down
+  }
+  return `${d} L${W} ${base} Z`
+}
+
+function forest(o: BuildOptions): string {
+  const rnd = rng(173)
+  let body = ''
+  // Sunbeams slanting from the top right, breathing slowly.
+  for (let i = 0; i < 5; i++) {
+    const x = W * (0.45 + i * 0.12)
+    body += `<polygon points="${r1(x)},0 ${r1(x + 60)},0 ${r1(x - 380)},${H} ${r1(x - 520)},${H}" fill="#ffffff" style="${anim('beam', 9 + i * 2, o.speed, rnd(), 'ease-in-out ')}"/>`
+  }
+  const rows: [number, number, string][] = [
+    [0.58, 220, '#a9c4b2'],
+    [0.68, 260, '#7fa48c'],
+    [0.8, 300, '#4f7a62'],
+    [0.94, 340, '#24463a'],
+  ]
+  rows.forEach(([y, h, fill], i) => {
+    body += pineRow(y * H, h, fill, rnd)
+    // Mist drifting between the rows.
+    body += `<g class="a" style="${anim('dr', 120 + i * 30, o.speed, rnd())}"><ellipse cx="300" cy="${r1(y * H - 20)}" rx="700" ry="60" fill="url(#mist)"/></g>`
+  })
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#f4f1e4', '#dfe9dc', '#bcd3c3'],
+    defs: softGradient('mist', '#ffffff', 0.8),
+    css: `${DRIFT_CSS}@keyframes beam{0%,100%{opacity:.05}50%{opacity:.16}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function lake(o: BuildOptions): string {
+  const rnd = rng(181)
+  const horizon = H * 0.62
+  const far = peaksPath(horizon, 260, rnd)
+  const near = peaksPath(horizon, 170, rnd)
+  let body = starDots(80, 0, H * 0.4, '#fff8ec', o.speed, rnd)
+  body +=
+    `<path d="${far}" fill="#4b4f7d"/><path d="${far}" fill="url(#snow)"/><path d="${near}" fill="#2a2d52"/>` +
+    // The reflection: the same peaks flipped about the shore, under the water's tint.
+    `<g transform="translate(0 ${r1(horizon * 2)}) scale(1 -1)" opacity=".45"><path d="${far}" fill="#4b4f7d"/><path d="${near}" fill="#2a2d52"/></g>` +
+    `<rect x="0" y="${r1(horizon)}" width="${W}" height="${r1(H - horizon)}" fill="url(#water)"/>`
+  // Ripples: short pale strokes that come and go.
+  for (let g = 0; g < 4; g++) {
+    let d = ''
+    for (let i = 0; i < 14; i++) {
+      const x = rnd() * W
+      const y = horizon + 20 + rnd() * (H - horizon - 40)
+      d += `M${r1(x)} ${r1(y)} h${r1(30 + rnd() * 80)}`
+    }
+    body += `<path d="${d}" stroke="#f3d7c4" stroke-width="2" stroke-linecap="round" style="${anim('tw', 5 + g * 2, o.speed, rnd(), 'ease-in-out ')}"/>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#17213f', '#4a4a7c', '#b9798a', '#e9a585'],
+    defs:
+      `<linearGradient id="snow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".7"/><stop offset=".25" stop-color="#ffffff" stop-opacity="0"/></linearGradient>` +
+      `<linearGradient id="water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b3561" stop-opacity=".55"/><stop offset="1" stop-color="#0f1530" stop-opacity=".95"/></linearGradient>`,
+    css: STARS_CSS,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function galaxy(o: BuildOptions): string {
+  const rnd = rng(191)
+  const cx = W * 0.62
+  const cy = H * 0.42
+  let body = starDots(160, 0, H, '#dfe6ff', o.speed, rnd, 5)
+  body += `<circle cx="${cx}" cy="${cy}" r="420" fill="url(#halo)"/>`
+  // Two arms of dots on a log spiral, tilted into an ellipse, turning slowly.
+  const colors = ['#ffffff', '#cfd8ff', '#ffd6f0', '#a9c4ff', '#ffe9c4']
+  let dots = ''
+  for (let arm = 0; arm < 2; arm++) {
+    // A soft band of light under each arm, so the spiral reads at a glance.
+    let band = ''
+    for (let i = 0; i <= 60; i++) {
+      const t = (i / 60) * 3.2 * Math.PI
+      const r = 18 * Math.exp(0.3 * t)
+      const a = t + arm * Math.PI
+      band += `${i ? 'L' : 'M'}${r1(cx + r * Math.cos(a))} ${r1(cy + r * Math.sin(a))}`
+    }
+    dots += `<path d="${band}" fill="none" stroke="#9d8cff" stroke-opacity=".16" stroke-width="70" stroke-linecap="round"/><path d="${band}" fill="none" stroke="#e4dcff" stroke-opacity=".18" stroke-width="22" stroke-linecap="round"/>`
+    for (let i = 0; i < 300; i++) {
+      const t = (i / 300) * 3.2 * Math.PI
+      const r = 18 * Math.exp(0.3 * t) + (rnd() - 0.5) * (10 + t * 9)
+      const a = t + arm * Math.PI + (rnd() - 0.5) * 0.35
+      dots += `<circle cx="${r1(cx + r * Math.cos(a))}" cy="${r1(cy + r * Math.sin(a))}" r="${r1(1 + rnd() * 2.4)}" fill="${colors[Math.floor(rnd() * colors.length)]}" opacity="${r2(0.5 + rnd() * 0.5)}"/>`
+    }
+  }
+  body +=
+    `<g transform="translate(${cx} ${cy}) scale(1 .55) rotate(-20) translate(${-cx} ${-cy})">` +
+    `<g style="transform-origin:${cx}px ${cy}px;${anim('spin', 360, o.speed, 0)}">${dots}</g></g>` +
+    `<circle cx="${cx}" cy="${cy}" r="70" fill="url(#core)"/>`
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#03020c', '#0b0626', '#160b33'],
+    skyAngle: 'diagonal',
+    defs: softGradient('halo', '#6c5cff', 0.3) + softGradient('core', '#fff3d6', 0.9),
+    css: `${STARS_CSS}@keyframes spin{to{transform:rotate(360deg)}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function planets(o: BuildOptions): string {
+  const rnd = rng(197)
+  const px = W * 0.72
+  const py = H * 0.34
+  const pr = 150
+  const ring = (half: 'back' | 'front') =>
+    `<path d="M${px - 300} ${py} A300 62 0 0 ${half === 'back' ? 1 : 0} ${px + 300} ${py}" fill="none" stroke="url(#ring)" stroke-width="16" transform="rotate(-14 ${px} ${py})"/>`
+  let body = starDots(150, 0, H, '#e8ecff', o.speed, rnd, 5)
+  body +=
+    `<circle cx="${W * 0.16}" cy="${H * 0.72}" r="46" fill="url(#blue)"/>` +
+    `<circle cx="${px}" cy="${py}" r="320" fill="url(#pglow)"/>` +
+    ring('back') +
+    `<circle cx="${px}" cy="${py}" r="${pr}" fill="url(#planet)"/>` +
+    `<circle cx="${px}" cy="${py}" r="${pr}" fill="url(#shade)"/>` +
+    ring('front') +
+    // A small moon on a circle about the planet.
+    `<g style="transform-origin:${px}px ${py}px;${anim('orbit', 60, o.speed, 0.2)}"><circle cx="${px + 380}" cy="${py}" r="16" fill="#d9dbe6"/></g>` +
+    `<g transform="translate(${W * 0.1} ${H * 0.12}) rotate(18)"><g style="${anim('shoot', 14, o.speed, 0.3)}"><line x1="0" y1="0" x2="160" y2="0" stroke="url(#trail)" stroke-width="2"/></g></g>`
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#040714', '#0a1330', '#151c43'],
+    defs:
+      `<linearGradient id="planet" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe0ab"/><stop offset=".5" stop-color="#e09a62"/><stop offset="1" stop-color="#8a4632"/></linearGradient>` +
+      `<radialGradient id="shade" cx=".35" cy=".3" r=".8"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient>` +
+      `<linearGradient id="ring" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#f6e2bf" stop-opacity=".2"/><stop offset=".5" stop-color="#f6e2bf" stop-opacity=".85"/><stop offset="1" stop-color="#f6e2bf" stop-opacity=".2"/></linearGradient>` +
+      `<radialGradient id="blue" cx=".35" cy=".35"><stop offset="0" stop-color="#a6d8ff"/><stop offset="1" stop-color="#2b5fa8"/></radialGradient>` +
+      `<linearGradient id="trail" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
+      softGradient('pglow', '#ffb37a', 0.25),
+    css: `${STARS_CSS}@keyframes orbit{to{transform:rotate(360deg)}}
+@keyframes shoot{0%{transform:translateX(0);opacity:0}2%{opacity:1}10%{transform:translateX(520px);opacity:0}100%{transform:translateX(520px);opacity:0}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+/** A soft cloud from overlapping circles, with a shaded underside. */
+function puffCloud(x: number, y: number, s: number, rnd: () => number, light = '#ffffff', shade = '#dbe7f5'): string {
+  const parts = Array.from({ length: 6 }, (_, i) => ({ dx: (i - 2.5) * 46 * s + (rnd() - 0.5) * 20 * s, dy: -Math.sin((i / 5) * Math.PI) * 50 * s, r: (45 + rnd() * 35) * s }))
+  const circles = (fill: string, off: number) => parts.map(p => `<circle cx="${r1(x + p.dx)}" cy="${r1(y + p.dy + off)}" r="${r1(p.r)}" fill="${fill}"/>`).join('')
+  return circles(shade, 14 * s) + circles(light, 0)
+}
+
+function islands(o: BuildOptions): string {
+  const rnd = rng(211)
+  let body = ''
+  for (let i = 0; i < 5; i++) {
+    body += `<g class="a" style="${anim('dr', 160 + rnd() * 80, o.speed, rnd())}">${puffCloud(200, H * (0.15 + rnd() * 0.6), 0.6 + rnd() * 0.6, rnd)}</g>`
+  }
+  const isles = [
+    { x: W * 0.22, y: H * 0.42, s: 1 },
+    { x: W * 0.62, y: H * 0.28, s: 1.35 },
+    { x: W * 0.86, y: H * 0.6, s: 0.8 },
+  ]
+  for (const [i, it] of isles.entries()) {
+    const w = 170 * it.s
+    const rock = `M${-w} 0 Q${-w * 0.6} ${w * 0.5} ${-w * 0.2} ${w * 0.9} L0 ${w * 1.25} L${w * 0.25} ${w * 0.8} Q${w * 0.7} ${w * 0.45} ${w} 0 Z`
+    const trees = [-0.55, -0.15, 0.3, 0.6]
+      .map(f => `<rect x="${r1(f * w - 3)}" y="${r1(-34 * it.s)}" width="6" height="${r1(30 * it.s)}" fill="#6b4a33"/><circle cx="${r1(f * w)}" cy="${r1(-40 * it.s)}" r="${r1(22 * it.s)}" fill="#3f9b5a"/>`)
+      .join('')
+    body +=
+      `<g transform="translate(${r1(it.x)} ${r1(it.y)})"><g style="${anim('bobY', 6 + i * 1.7, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">` +
+      `<rect x="${r1(w * 0.55)}" y="0" width="${r1(16 * it.s)}" height="${r1(H)}" fill="url(#fall)" class="f" style="${anim('pour', 2.5, o.speed, 0)}"/>` +
+      `<path d="${rock}" fill="#8a6d58"/><path d="${rock}" fill="url(#rockShade)"/>` +
+      `<ellipse cx="0" cy="0" rx="${r1(w * 1.02)}" ry="${r1(22 * it.s)}" fill="#6cc46f"/>${trees}</g></g>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#7cc4ff', '#bfe3ff', '#fff2dc'],
+    defs:
+      `<linearGradient id="fall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8f7ff" stop-opacity=".95"/><stop offset=".35" stop-color="#e8f7ff" stop-opacity="0"/></linearGradient>` +
+      `<linearGradient id="rockShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".4"/></linearGradient>`,
+    css: `${DRIFT_CSS}${FLOAT_CSS}@keyframes pour{0%,100%{opacity:.75}50%{opacity:1}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+const DRAGON =
+  'M0 0 Q30 -10 60 -2 Q78 2 92 -6 L104 -12 L98 0 Q80 14 58 10 Q30 14 0 6 Q-20 10 -40 22 Q-18 2 0 0 Z'
+const DRAGON_WING = 'M40 -2 Q46 -70 10 -88 Q56 -64 70 -4 Z'
+
+function castle(o: BuildOptions): string {
+  const rnd = rng(223)
+  const mx = W * 0.32
+  const my = H * 0.3
+  let body = starDots(90, 0, H * 0.6, '#f3eaff', o.speed, rnd)
+  body += `<circle cx="${mx}" cy="${my}" r="330" fill="url(#mglow)"/><circle cx="${mx}" cy="${my}" r="140" fill="#f7ebc8"/><circle cx="${mx - 40}" cy="${my - 30}" r="26" fill="#e9dcb4"/><circle cx="${mx + 50}" cy="${my + 40}" r="18" fill="#e9dcb4"/>`
+  // The dragon crosses in front of the moon now and then, wings beating.
+  body +=
+    `<g class="a" style="${anim('dr', 48, o.speed, 0.15)}"><g transform="translate(0 ${r1(my + 30)}) scale(1.6)">` +
+    `<path d="${DRAGON}" fill="#120a1f"/><path d="${DRAGON_WING}" fill="#120a1f" class="f" style="${anim('flap', 1.4, o.speed, 0, 'ease-in-out ')};animation-direction:alternate;transform-origin:bottom"/></g></g>`
+  // A cliff on the right with a castle on top.
+  const cliff = `M${W * 0.55} ${H} Q${W * 0.62} ${H * 0.72} ${W * 0.7} ${H * 0.66} L${W} ${H * 0.62} L${W} ${H} Z`
+  const base = H * 0.66
+  const towers: [number, number, number][] = [
+    [0.72, 120, 34],
+    [0.77, 190, 44],
+    [0.83, 150, 38],
+    [0.9, 230, 50],
+    [0.96, 140, 36],
+  ]
+  let keep = `<rect x="${W * 0.72}" y="${base - 90}" width="${W * 0.24}" height="100" fill="#0a0816"/>`
+  for (const [fx, h, w] of towers) {
+    const x = W * fx
+    keep += `<rect x="${r1(x - w / 2)}" y="${r1(base - h)}" width="${w}" height="${h + 10}" fill="#0a0816"/><polygon points="${r1(x - w / 2 - 8)},${r1(base - h)} ${r1(x)},${r1(base - h - w * 1.5)} ${r1(x + w / 2 + 8)},${r1(base - h)}" fill="#0a0816"/>`
+  }
+  const windows = towers.map(([fx, h]) => `<rect x="${r1(W * fx - 4)}" y="${r1(base - h * 0.6)}" width="8" height="14" rx="3" fill="#ffcf6b"/>`).join('')
+  body += `<path d="${cliff}" fill="#0d0a1c"/>${keep}<g style="${anim('tw', 7, o.speed, 0.4, 'ease-in-out ')}">${windows}</g>`
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#0a0f25', '#251a46', '#55305c'],
+    defs: softGradient('mglow', '#f7e3b0', 0.4),
+    css: `${STARS_CSS}${DRIFT_CSS.replace(/-400px/g, '-260px')}@keyframes flap{from{transform:scaleY(1)}to{transform:scaleY(-.3)}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function summer(o: BuildOptions): string {
+  const rnd = rng(227)
+  const sea = H * 0.8
+  let body = `<circle cx="${W * 0.86}" cy="${H * 0.12}" r="260" fill="url(#sun)"/><circle cx="${W * 0.86}" cy="${H * 0.12}" r="46" fill="#ffffff"/>`
+  // A jet trail drawing itself across the sky, again and again.
+  body += `<path d="M${W * 0.05} ${H * 0.32} Q${W * 0.4} ${H * 0.14} ${W * 0.78} ${H * 0.2}" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-dasharray="1400" style="${anim('trail', 30, o.speed, 0)}" opacity=".85"/>`
+  // Towering clouds rising from the horizon, drifting very slowly.
+  body += `<g class="a" style="${anim('slow', 240, o.speed, 0.4, 'ease-in-out ')};animation-direction:alternate">`
+  for (const [x, s] of [
+    [W * 0.2, 1.5],
+    [W * 0.5, 2.1],
+    [W * 0.78, 1.3],
+  ] as const) {
+    for (let k = 0; k < 3; k++) body += puffCloud(x + (rnd() - 0.5) * 120, sea - 40 - k * 95 * s * 0.6, s * (1 - k * 0.22), rnd, '#ffffff', '#c9dcf2')
+  }
+  body += `</g>`
+  body += `<rect x="0" y="${sea}" width="${W}" height="${H - sea}" fill="url(#sea)"/><rect x="0" y="${sea}" width="${W}" height="3" fill="#ffffff" opacity=".6"/>`
+  // Two utility poles and their sagging wires in the foreground.
+  const pole = (x: number) => `<rect x="${x - 7}" y="${H * 0.18}" width="14" height="${H}" fill="#1e2a3a"/><rect x="${x - 70}" y="${H * 0.24}" width="140" height="10" fill="#1e2a3a"/><rect x="${x - 50}" y="${H * 0.31}" width="100" height="8" fill="#1e2a3a"/>`
+  body += pole(W * 0.08) + pole(W * 0.94)
+  for (const [y, sag] of [
+    [H * 0.245, 90],
+    [H * 0.25, 120],
+    [H * 0.315, 140],
+  ] as const) {
+    body += `<path d="M${W * 0.08} ${y} Q${W * 0.51} ${y + sag * 2} ${W * 0.94} ${y}" fill="none" stroke="#1e2a3a" stroke-width="2.5"/>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#1d66d6', '#4f9ff0', '#bfe2ff'],
+    defs:
+      softGradient('sun', '#fffbe6', 0.85) +
+      `<linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a8fe0"/><stop offset="1" stop-color="#1b5fae"/></linearGradient>`,
+    css: `@keyframes trail{0%{stroke-dashoffset:1400;opacity:.85}60%{stroke-dashoffset:0;opacity:.85}100%{stroke-dashoffset:0;opacity:0}}
+@keyframes slow{from{transform:translateX(-40px)}to{transform:translateX(40px)}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function starry(o: BuildOptions): string {
+  const rnd = rng(229)
+  let body = starDots(220, 0, H * 0.7, '#ffffff', o.speed, rnd, 6)
+  body += `<ellipse cx="${W * 0.5}" cy="${H * 0.3}" rx="${W * 0.6}" ry="120" fill="url(#milky)" transform="rotate(-18 ${W * 0.5} ${H * 0.3})"/>`
+  // The comet: a bright head with a long fading tail, gently glowing.
+  body +=
+    `<g transform="translate(${W * 0.66} ${H * 0.2}) rotate(152)" style="${anim('tw', 6, o.speed, 0, 'ease-in-out ')}">` +
+    `<path d="M0 -10 Q260 -4 520 -40 Q260 10 0 10 Z" fill="url(#tail)"/><circle cx="0" cy="0" r="12" fill="#ffffff"/><circle cx="0" cy="0" r="40" fill="url(#head)"/></g>`
+  for (const [x, y, secs, phase] of [
+    [W * 0.1, H * 0.1, 9, 0.2],
+    [W * 0.35, H * 0.05, 13, 0.7],
+    [W * 0.75, H * 0.35, 17, 0.45],
+  ] as const) {
+    body += `<g transform="translate(${r1(x)} ${r1(y)}) rotate(28)"><g style="${anim('shoot', secs, o.speed, phase)}"><line x1="0" y1="0" x2="140" y2="0" stroke="url(#streak)" stroke-width="2.5" stroke-linecap="round"/></g></g>`
+  }
+  // A hillside town asleep, a few windows still lit.
+  const hill = `<path d="${ridgePath(W, H * 0.8, H, [[30, 1200, 0.5], [14, 500, 2]])}" fill="#141032"/>`
+  let roofs = ''
+  let lit = ''
+  for (let x = 40; x < W; x += 50 + rnd() * 70) {
+    const w = 40 + rnd() * 50
+    const h = 30 + rnd() * 50
+    const y = H * 0.8 - 20 + Math.sin(x / 190) * 20 - h
+    roofs += `<rect x="${r1(x)}" y="${r1(y)}" width="${r1(w)}" height="${r1(h + 80)}" fill="#141032"/><polygon points="${r1(x - 6)},${r1(y)} ${r1(x + w / 2)},${r1(y - 22)} ${r1(x + w + 6)},${r1(y)}" fill="#141032"/>`
+    if (rnd() < 0.6) lit += `<rect x="${r1(x + w * 0.3)}" y="${r1(y + h * 0.35)}" width="10" height="12" rx="2" fill="#ffd27a"/>`
+  }
+  body += hill + roofs + `<g style="${anim('tw', 11, o.speed, 0.2, 'ease-in-out ')}">${lit}</g>`
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#081236', '#1f2f78', '#62509c', '#e8a1b6'],
+    defs:
+      softGradient('milky', '#c9b8ff', 0.22) +
+      softGradient('head', '#bfe9ff', 0.8) +
+      `<linearGradient id="tail" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#d8f3ff" stop-opacity=".9"/><stop offset="1" stop-color="#d8f3ff" stop-opacity="0"/></linearGradient>` +
+      `<linearGradient id="streak" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff"/></linearGradient>`,
+    css: `${STARS_CSS}@keyframes shoot{0%{transform:translateX(0);opacity:0}2%{opacity:1}9%{transform:translateX(420px);opacity:0}100%{transform:translateX(420px);opacity:0}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+const CAMEL =
+  'M0 0 Q6 -16 16 -14 Q22 -26 30 -14 Q38 -14 40 -4 L48 -20 L54 -20 L52 -4 L46 0 L46 18 L42 18 L41 6 L12 6 L11 18 L7 18 L7 4 Z'
+
+function pyramids(o: BuildOptions): string {
+  const rnd = rng(233)
+  const horizon = H * 0.7
+  let body = `<circle cx="${W * 0.3}" cy="${horizon - 40}" r="360" fill="url(#sun)"/><circle cx="${W * 0.3}" cy="${horizon - 40}" r="110" fill="#ffe2a8"/>`
+  const pyramid = (x: number, w: number, h: number) =>
+    `<polygon points="${r1(x - w / 2)},${r1(horizon)} ${r1(x)},${r1(horizon - h)} ${r1(x + w / 2)},${r1(horizon)}" fill="#d99a5b"/>` +
+    `<polygon points="${r1(x)},${r1(horizon - h)} ${r1(x + w / 2)},${r1(horizon)} ${r1(x + w * 0.1)},${r1(horizon)}" fill="#a8683a"/>`
+  body += pyramid(W * 0.55, 520, 330) + pyramid(W * 0.78, 380, 240) + pyramid(W * 0.4, 260, 160)
+  body += `<path d="${ridgePath(W, horizon + 10, H, [[14, 900, 0.3], [6, 300, 1]])}" fill="#e3ad6d"/>`
+  // The caravan walks along the near dune, swaying as it goes.
+  let caravan = ''
+  for (let i = 0; i < 4; i++) caravan += `<g transform="translate(${i * 70} 0)"><path d="${CAMEL}" fill="#4a2a1a" class="f" style="${anim('sway', 1.2, o.speed, i * 0.25, 'ease-in-out ')};animation-direction:alternate"/></g>`
+  body += `<g class="a" style="${anim('walk', 140, o.speed, 0.3)}"><g transform="translate(0 ${r1(H * 0.8)}) scale(1.3)">${caravan}</g></g>`
+  body += `<path d="${ridgePath(W, H * 0.86, H, [[22, 1100, 2], [8, 400, 0.4]])}" fill="#c98a4e"/>`
+  body += `<path d="${ridgePath(W, H * 0.94, H, [[16, 800, 1.2]])}" fill="#a86b3a"/>`
+  for (let b = 0; b < 3; b++) {
+    body += `<g class="a" style="${anim('dr', 60 + rnd() * 40, o.speed, rnd())}"><path d="M0 ${r1(H * (0.15 + rnd() * 0.15))} q8 -7 16 0 q8 -7 16 0" fill="none" stroke="#5a2e2a" stroke-width="2.2" stroke-linecap="round"/></g>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#f6b97f', '#f39c6b', '#e07b67', '#f6c58e'],
+    defs: softGradient('sun', '#fff0c2', 0.75),
+    css: `${DRIFT_CSS}@keyframes walk{from{transform:translateX(-360px)}to{transform:translateX(${W + 40}px)}}@keyframes sway{from{transform:rotate(-2deg)}to{transform:rotate(2deg)}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
+function lanterns(o: BuildOptions): string {
+  const rnd = rng(239)
+  const shore = H * 0.78
+  let body = starDots(70, 0, H * 0.5, '#ffe9d0', o.speed, rnd)
+  body += `<path d="${peaksPath(shore, 180, rnd)}" fill="#24183a"/>`
+  // A pagoda on the left shore: stacked tiers with upturned eaves.
+  let pagoda = ''
+  const px = W * 0.16
+  for (let t = 0; t < 5; t++) {
+    const w = 200 - t * 30
+    const y = shore - 40 - t * 70
+    pagoda +=
+      `<rect x="${r1(px - w * 0.32)}" y="${r1(y - 40)}" width="${r1(w * 0.64)}" height="44" fill="#120b20"/>` +
+      `<path d="M${r1(px - w / 2 - 20)} ${r1(y - 52)} Q${r1(px)} ${r1(y - 34)} ${r1(px + w / 2 + 20)} ${r1(y - 52)} L${r1(px + w / 2)} ${r1(y - 38)} L${r1(px - w / 2)} ${r1(y - 38)} Z" fill="#120b20"/>`
+  }
+  pagoda += `<rect x="${px - 3}" y="${shore - 40 - 5 * 70 - 50}" width="6" height="60" fill="#120b20"/>`
+  body += pagoda + `<rect x="0" y="${shore}" width="${W}" height="${H - shore}" fill="url(#water)"/>`
+  // Lanterns rise from the water, sway, and glow; each loops on its own.
+  for (let i = 0; i < 38; i++) {
+    const x = rnd() * W
+    const s = 0.5 + rnd() * 0.9
+    body +=
+      `<g class="a" style="${anim('rise', 40 + rnd() * 50, o.speed, rnd())}"><g transform="translate(${r1(x)} 0) scale(${r2(s)})">` +
+      `<g style="${anim('sway', 5 + rnd() * 4, o.speed, rnd(), 'ease-in-out ')};animation-direction:alternate">` +
+      `<circle cx="0" cy="0" r="38" fill="url(#lglow)"/><rect x="-11" y="-15" width="22" height="30" rx="8" fill="url(#paper)"/><rect x="-6" y="13" width="12" height="3" fill="#7a2c1c"/></g></g></g>`
+  }
+  return doc({
+    w: W,
+    h: H,
+    sky: ['#0c0a22', '#2a1840', '#6e2c45', '#c45c4a'],
+    defs:
+      softGradient('lglow', '#ffb35c', 0.55) +
+      `<linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe7a3"/><stop offset="1" stop-color="#ff9a4a"/></linearGradient>` +
+      `<linearGradient id="water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a1d3a" stop-opacity=".85"/><stop offset="1" stop-color="#0d0a1c"/></linearGradient>`,
+    css: `${STARS_CSS}@keyframes rise{from{transform:translateY(${H + 60}px)}to{transform:translateY(-80px)}}@keyframes sway{from{transform:translateX(-14px)}to{transform:translateX(14px)}}`,
+    body,
+    veil: o.veil,
+    veilColor: o.veilColor,
+  })
+}
+
 // ---------- falling glyphs, shared by rain, snow and blossoms ----------
 
 type Fall = { name: string; layers: number; count: number; glyphs: string; fills: string[]; secs: [number, number]; dx: number }
@@ -1354,7 +1813,7 @@ function honu(o: BuildOptions): string {
 
 type BuildOptions = SceneOptions & { veilColor: string }
 
-const BUILDERS: Record<SceneId, (o: BuildOptions) => string> = { waves, hills, bokeh, glow, honu, clouds, koi, jelly, boats, fireflies, moon, rain, snow, aurora, sakura }
+const BUILDERS: Record<SceneId, (o: BuildOptions) => string> = { waves, hills, forest, lake, galaxy, planets, islands, castle, summer, starry, pyramids, lanterns, bokeh, glow, honu, clouds, koi, jelly, boats, fireflies, moon, rain, snow, aurora, sakura }
 
 /** The scene's SVG document, at most 131072 characters. */
 export function buildScene(id: SceneId, o: SceneOptions): string {
@@ -1403,6 +1862,16 @@ type Thumb = { sky: string[]; lines: ThumbLine[] }
 
 const THUMBS: Record<SceneId, Thumb> = {
   // Illustrated scenes preview as themselves (see wallpaperThumb); these are unused.
+  forest: { sky: [], lines: [] },
+  lake: { sky: [], lines: [] },
+  galaxy: { sky: [], lines: [] },
+  planets: { sky: [], lines: [] },
+  islands: { sky: [], lines: [] },
+  castle: { sky: [], lines: [] },
+  summer: { sky: [], lines: [] },
+  starry: { sky: [], lines: [] },
+  pyramids: { sky: [], lines: [] },
+  lanterns: { sky: [], lines: [] },
   waves: { sky: ['#fde3c8', '#a9cbe8'], lines: [] },
   hills: { sky: ['#24163f', '#f7a76a'], lines: [] },
   bokeh: { sky: ['#0d0a1f', '#0a1626'], lines: [] },
@@ -1428,7 +1897,7 @@ const artThumbs = new Map<SceneId, string>()
 /** A small preview of a wallpaper, for the picker. */
 export function wallpaperThumb(id: SceneId | GroundId): string {
   // An illustrated scene is only a few kilobytes, so it previews as itself.
-  if (!isGroundId(id) && SCENES.find(s => s.id === id)?.kind === 'art') {
+  if (!isGroundId(id) && (SCENES.find(s => s.id === id)?.kind ?? 'ascii') !== 'ascii') {
     let art = artThumbs.get(id)
     if (art === undefined) {
       art = buildScene(id, { speed: 1, veil: 0 })

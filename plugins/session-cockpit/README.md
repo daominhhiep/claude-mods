@@ -58,8 +58,8 @@ The mod hooks `tool.check` twice. Neither hook ever allows a call: each one only
 | `command.run` (`budget`) | Shows or sets this session's budget | Answers its own command only; no other command is seen |
 | `tool.check` | Budget guard, above | Can refuse a tool call |
 | `tool.check` (Bash) | Destructive-command guard, above | Can make a call ask first |
-| `ui.render` (`Backdrop`) | In the desktop and mobile apps, draws the wallpaper chosen in Settings · Theme as an SVG; another mod's backdrop is passed on | Draws only a backdrop this mod set |
-| `command.run` (`wallpaper`) | Shows or changes the wallpaper, as the Theme tab does | Answers its own command only; `off` clears the session's look |
+| `ui.render` (`Backdrop`) | In the desktop and mobile apps, draws the wallpaper chosen in Settings · Wallpaper as an SVG; another mod's backdrop is passed on | Draws only a backdrop this mod set |
+| `command.run` (`wallpaper`) | Shows or changes the wallpaper, as the Wallpaper tab does | Answers its own command only; `off` clears the session's look |
 | `agent.spawn` | After a subagent has started, reads the agent list to draw the tree | No: the spawn goes on exactly as asked, and its result is returned unchanged |
 | `command.run` (`pin`, `unpin`) | Pins or unpins this session in the mod's local store; `/pin <name>` also runs Claude Code's `/rename <name>` | Answers its own commands; runs `/rename` only when you give a name |
 | `turn.step` | Reads the model and effort of each main-loop request as it goes out, for the band | No: the request is sent exactly as the engine made it |
