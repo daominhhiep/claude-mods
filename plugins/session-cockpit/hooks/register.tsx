@@ -2027,7 +2027,14 @@ export const register: Register = (on, options) => {
     const width = Math.max(24, e.props.bodyColumns)
     const room = Math.max(4, e.props.scroll.bodyRows - 4)
 
-    const rule = <Text color={paint('subtle')}>{'─'.repeat(width)}</Text>
+    // A line of '─' cells wraps onto a second, shorter line where the app's font
+    // is wider than a cell, so the app gets a hairline drawn as a picture instead.
+    const rule =
+      Svg === undefined ? (
+        <Text color={paint('subtle')}>{'─'.repeat(width)}</Text>
+      ) : (
+        <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="9" viewBox="0 0 4000 9"><rect y="4" width="4000" height="1" fill="#8a8a99" fill-opacity=".4"/></svg>`} alt="Divider" height={9} />
+      )
 
     const heading = (title: string, meta?: string) => (
       <Box flexDirection="row" justifyContent="space-between">
@@ -3434,24 +3441,13 @@ export const register: Register = (on, options) => {
           </Button>
         )
       }
-      // A card per wallpaper: a small preview over a real button with its name.
-      // Only a Button takes a press, so the button is drawn as one, filled when
-      // chosen, and the whole card lights up under the pointer.
+      // A card per wallpaper: a small preview over a real button with its name,
+      // filled when chosen. Only a Button takes a press, so no frame suggests
+      // the picture itself is one.
       const wallpaperCard = (id: WallpaperId, name: string) => {
         const isOn = id === scene
         return (
-          <Box
-            key={`wallpaper-card-${id}`}
-            flexDirection="column"
-            alignItems="center"
-            gap={1}
-            padding={1}
-            borderStyle="round"
-            borderColor={isOn ? paint('claude') : paint('inactive')}
-            borderDimColor={!isOn}
-            hover={{ borderColor: paint('claude'), borderDimColor: false }}
-            overflow="hidden"
-          >
+          <Box key={`wallpaper-card-${id}`} flexDirection="column" alignItems="center" gap={1}>
             {Svg === undefined ? null : <Svg source={wallpaperThumb(id)} alt={`${name} preview`} width={THUMB_W} height={THUMB_H} />}
             <Button key={`wallpaper-${id}`} variant={isOn ? 'primary' : 'secondary'} onPress={() => pickWallpaper(id)}>
               {isOn ? `✓ ${name}` : name}
