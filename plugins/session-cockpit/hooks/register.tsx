@@ -181,7 +181,7 @@ type WallpaperId = SceneId | GroundId
 const isWallpaperId = (id: unknown): id is WallpaperId => isSceneId(id) || isGroundId(id)
 const wallpaperLook = (id: WallpaperId): ThemeSetArgs => {
   if (isSceneId(id)) {
-    return { backdrop: { scene: id, glass: { blur: 12 } }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
+    return { backdrop: { scene: id, glass: false }, overrideColorScheme: SCENES.find(s => s.id === id)!.scheme }
   }
   const g = GROUNDS.find(x => x.id === id)!
   return {
