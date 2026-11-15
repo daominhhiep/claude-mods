@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
 import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
+import { SCENE_IDS, buildScene } from '../hooks/wallpaper'
+import type { ThemeSetArgs } from 'claude-code'
 import { petSvg } from '../hooks/rules'
 import { PET_ART } from '../hooks/pet-art'
 
@@ -567,6 +569,73 @@ test('pinning keeps a named session one press away', async ($, on) => {
   await ui.press({ key: 'pin-here' })
   expect(filled).toEqual(['/pin '])
   await ui.unmount()
+})
+
+test('every wallpaper scene is a self-contained SVG under the size limit', async () => {
+  for (const id of SCENE_IDS) {
+    const svg = buildScene(id, { speed: 1, veil: 0.25 })
+    expect(svg.startsWith('<svg')).toBe(true)
+    expect(svg.length).toBeLessThan(131072)
+    expect(/<script|\son\w+=|https?:\/\/(?!www\.w3\.org)/.test(svg)).toBe(false)
+  }
+})
+
+test('the Theme tab picks a wallpaper, kept for next time, and draws it behind the chat', async ($, on) => {
+  mock.store(on)
+  const sets: ThemeSetArgs[] = []
+  let cleared = 0
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('clock.every', () => ({ value: {} as never }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.usage', () => ({
+    value: { startedAt: 1_700_000_000_000, context: { window: 200_000 }, rateLimits: [], cost: { usd: 1 } },
+  }))
+  on('theme.set', (_, e) => {
+    sets.push(e)
+    return { value: { isDrawn: true, requestId: 't1' } }
+  })
+  on('theme.clear', () => {
+    cleared++
+    return { value: { isDrawn: false, reason: 'cleared' } }
+  })
+  await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
+  // Off by default: nothing is set, and nothing another mod set is cleared.
+  expect(sets).toEqual([])
+  expect(cleared).toBe(0)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'group-settings' })
+  await ui.press({ key: 'tab-theme' })
+  expect(await ui.find({ type: 'Text', text: 'Wallpaper' })).toBeDefined()
+  await ui.press({ key: 'wallpaper-moon' })
+  expect(sets.at(-1)).toEqual({ backdrop: { scene: 'moon', glass: { blur: 12 } }, overrideColorScheme: 'dark' })
+  await ui.press({ key: 'wallpaper-clouds' })
+  expect(sets.at(-1)?.overrideColorScheme).toBe('light')
+  await ui.unmount()
+
+  // A new session sets the saved wallpaper again.
+  await $.session.start({ cwd: '/repo/app', surface: 'desktop', isInteractive: true })
+  expect(sets.at(-1)?.backdrop).toEqual({ scene: 'clouds', glass: { blur: 12 } })
+
+  for (const surface of ['desktop', 'mobile'] as const) {
+    const mine = { plugin: 'session-cockpit', component: 'Backdrop', props: { scene: 'clouds', plugin: 'session-cockpit', glass: false } } as const
+    const back = await $.ui.mount({ ...mine, surface })
+    expect(await back.find({ type: 'Svg' })).toBeDefined()
+    await back.unmount()
+    const theirs = await $.ui.mount({ ...mine, props: { ...mine.props, plugin: 'someone-else' }, surface })
+    expect(await theirs.find({ type: 'Svg' })).toBeUndefined()
+    await theirs.unmount()
+  }
+
+  const off = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await off.press({ key: 'group-settings' })
+  await off.press({ key: 'tab-theme' })
+  await off.press({ key: 'wallpaper-off' })
+  expect(cleared).toBe(1)
+  await off.unmount()
 })
 
 test('a theme repaints the band and the pane, and is kept for next time', async ($, on) => {

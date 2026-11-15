@@ -168,6 +168,8 @@ declare module 'claude-code' {
       frame: number
       paneFrame: number
       theme: string
+      /** The app backdrop, a wallpaper scene id or 'off'. */
+      wallpaper: string
       effects: {
         fireworks: boolean
         flash: boolean

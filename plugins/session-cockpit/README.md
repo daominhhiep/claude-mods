@@ -53,11 +53,12 @@ The mod hooks `tool.check` twice. Neither hook ever allows a call: each one only
 
 | Event | What the hook does | Changes anything? |
 | --- | --- | --- |
-| `session.start` | Registers `/cockpit` and `/budget`, opens the pane, starts a 5-second clock for the band and the 60-second pull request refresh | No |
+| `session.start` | Registers `/cockpit` and `/budget`, opens the pane, starts a 5-second clock for the band and the 60-second pull request refresh, and sets the saved wallpaper as the app's backdrop | Only with a wallpaper chosen: sets the session's look, replacing any other mod's; with Wallpaper off it sets and clears nothing |
 | `command.run` (`cockpit`) | Opens the pane | Answers its own command only |
 | `command.run` (`budget`) | Shows or sets this session's budget | Answers its own command only; no other command is seen |
 | `tool.check` | Budget guard, above | Can refuse a tool call |
 | `tool.check` (Bash) | Destructive-command guard, above | Can make a call ask first |
+| `ui.render` (`Backdrop`) | In the desktop and mobile apps, draws the wallpaper chosen in Settings · Theme as an SVG; another mod's backdrop is passed on | Draws only a backdrop this mod set |
 | `agent.spawn` | After a subagent has started, reads the agent list to draw the tree | No: the spawn goes on exactly as asked, and its result is returned unchanged |
 | `command.run` (`pin`, `unpin`) | Pins or unpins this session in the mod's local store; `/pin <name>` also runs Claude Code's `/rename <name>` | Answers its own commands; runs `/rename` only when you give a name |
 | `turn.step` | Reads the model and effort of each main-loop request as it goes out, for the band | No: the request is sent exactly as the engine made it |

@@ -1,4 +1,4 @@
-// Animated ASCII wallpapers as SVG: every scene is text glyphs on a sky, moved by
+// Animated ASCII wallpapers for the app's backdrop, as SVG: every scene is text glyphs on a sky, moved by
 // CSS animation (and SMIL motion paths for the lagoon). No script runs in a
 // backdrop, so all motion is declared up front and loops forever.
 // Pure functions only, so tests can build every scene directly.

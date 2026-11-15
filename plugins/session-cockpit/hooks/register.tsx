@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, SessionUsage } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, SessionUsage, ThemeSetArgs } from 'claude-code'
 
 import type { PetFeeling, PetRange } from './rules'
+import { SCENES, buildScene, isSceneId } from './wallpaper'
+import type { SceneId } from './wallpaper'
 
 import type {
   AgentCost,
@@ -128,6 +130,7 @@ const keepDays = atom({ plugin: 'session-cockpit', key: 'keepDays' } as const, 3
 const frame = atom({ plugin: 'session-cockpit', key: 'frame' } as const, 0)
 const paneFrame = atom({ plugin: 'session-cockpit', key: 'paneFrame' } as const, 0)
 const theme = atom({ plugin: 'session-cockpit', key: 'theme' } as const, 'claude')
+const wallpaper = atom({ plugin: 'session-cockpit', key: 'wallpaper' } as const, 'off')
 const effects = atom({ plugin: 'session-cockpit', key: 'effects' } as const, DEFAULT_EFFECTS)
 const burstAt = atom({ plugin: 'session-cockpit', key: 'burst' } as const, null)
 const flashAt = atom({ plugin: 'session-cockpit', key: 'flash' } as const, null)
@@ -170,6 +173,15 @@ const TYPE_CHAR_MS = 8
 const TYPE_MAX_MS = 1_200
 const PINS_KEY = 'pins'
 const THEME_KEY = 'theme'
+const WALLPAPER_KEY = 'wallpaper'
+
+// The wallpaper's look: frosted panels over it, and the mode the scene was painted for.
+const wallpaperLook = (id: SceneId): ThemeSetArgs => ({
+  backdrop: { scene: id, glass: { blur: 12 } },
+  overrideColorScheme: SCENES.find(s => s.id === id)!.scheme,
+})
+// Each scene's SVG, built once: it depends on nothing but the scene.
+const builtScenes = new Map<SceneId, string>()
 const PET_KEY = 'petLife'
 const WARN_DAYS = 7
 
@@ -303,6 +315,12 @@ async function loadSaved($: EngineInterface): Promise<void> {
     if (Array.isArray(saved)) await update($, pins, () => saved as PinnedSession[])
     const savedTheme = await $.store.get(THEME_KEY)
     if (typeof savedTheme === 'string') await update($, theme, () => savedTheme)
+    const savedWallpaper = await $.store.get(WALLPAPER_KEY)
+    if (typeof savedWallpaper === 'string') await update($, wallpaper, () => savedWallpaper)
+    // Neither a reload nor /resume keeps a backdrop, so set it again here. Off sets
+    // nothing: clearing here would take away another mod's look.
+    const scene = await read($, wallpaper)
+    if (isSceneId(scene)) await $.theme.set(wallpaperLook(scene))
     const savedEffects = await $.store.get(EFFECTS_KEY)
     if (savedEffects !== undefined) await update($, effects, () => effectsFrom(savedEffects))
     const days = await $.settings.read({ key: 'cleanupPeriodDays' })
@@ -1014,6 +1032,22 @@ export const register: Register = (on, options) => {
     }
 
     return result
+  })
+
+  // ── Wallpaper behind the conversation ─────────────────────────────
+  on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
+    // Every mod's backdrop comes here; draw only the one this mod set.
+    if (e.props.plugin !== $.plugin.name || !isSceneId(e.props.scene)) return next(e)
+    if (e.surface !== 'desktop' && e.surface !== 'mobile') return next(e)
+    const id = e.props.scene
+    let source = builtScenes.get(id)
+    if (source === undefined) {
+      source = buildScene(id, { speed: 1, veil: 0.25 })
+      builtScenes.set(id, source)
+    }
+    const { Svg } = $.ui.resolve(e)
+
+    return <Svg source={source} alt={SCENES.find(w => w.id === id)!.alt} isInteractive />
   })
 
   // ── Blast-radius guard ─────────────────────────────────────────────
@@ -3257,6 +3291,34 @@ export const register: Register = (on, options) => {
           </Button>
         )
       }
+      const scene = await read($, wallpaper)
+      const pickWallpaper = async (id: string) => {
+        await update($, wallpaper, () => id)
+        try {
+          await $.store.set(WALLPAPER_KEY, id)
+        } catch {
+          $.ui.toast('Wallpaper set for this session; it could not be saved for the next one.')
+        }
+        if (!isSceneId(id)) {
+          await $.theme.clear()
+          return
+        }
+        const set = await $.theme.set(wallpaperLook(id))
+        if (!set.isDrawn) $.ui.toast('Wallpaper saved. It shows in the Claude desktop and mobile apps.')
+      }
+      const wallpaperRow = (id: string, name: string) => {
+        const isOn = id === scene
+        return (
+          <Button key={`wallpaper-${id}`} plain onPress={() => pickWallpaper(id)}>
+            <Text color={paint(isOn ? 'claude' : 'subtle')} bold={isOn}>
+              {isOn ? '◉ ' : '○ '}
+            </Text>
+            <Text bold={isOn} color={isOn ? paint('claude') : undefined}>
+              {name}
+            </Text>
+          </Button>
+        )
+      }
       const groups = [
         { title: 'Your Claude Code theme', list: THEMES.filter(t => t.id === 'claude') },
         { title: 'For dark terminals', list: THEMES.filter(t => t.id !== 'claude' && t.isLight !== true) },
@@ -3285,6 +3347,14 @@ export const register: Register = (on, options) => {
               {g.list.map(row)}
             </Box>
           ))}
+          <Box key="wallpaper" flexDirection="column">
+            <Text color={paint('subtle')} bold>
+              Wallpaper
+            </Text>
+            <Text color={paint('inactive')}>Moving picture behind the chat, in the desktop and mobile apps</Text>
+            {wallpaperRow('off', 'Off')}
+            {SCENES.map(w => wallpaperRow(w.id, w.name))}
+          </Box>
         </Box>
       )
     } else {
