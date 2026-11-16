@@ -88,7 +88,19 @@ const r1 = (n: number) => Math.round(n * 10) / 10
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 /** Pins a row to whole cells, whatever the font's own advance. */
-const fit = (text: string, cw: number) => (text.length > 1 ? ` textLength="${text.length * cw}" lengthAdjust="spacing"` : '')
+// One row of grid text, each glyph placed on its own cell by an x list: no
+// textLength, which makes the browser stretch every glyph and costs a whole
+// frame's time on a full-width row (Turtle lagoon ran at 29 fps with it, and
+// the desktop app gave up drawing it). Spaces are left out, so only runs of
+// glyphs are written.
+const cellRow = (text: string, x0: number, y: number, cw: number, attrs = '') => {
+  let out = ''
+  for (const m of text.matchAll(/\S+/g)) {
+    const xs = Array.from(m[0], (_, k) => r1(x0 + (m.index! + k) * cw)).join(' ')
+    out += `<tspan x="${xs}" y="${y}"${attrs}>${esc(m[0])}</tspan>`
+  }
+  return out
+}
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -229,7 +241,7 @@ function spriteSvg(spr: Sprite, colors: Record<string, string>, o: SpriteOptions
       while (row[lead] === undefined) lead++
       let text = ''
       for (let i = lead; i < row.length; i++) text += row[i] ?? ' '
-      spans += `<tspan x="${r1(ox + lead * cw)}" y="${r1(oy + (y + 1) * ch)}"${fit(text, cw)}>${esc(text)}</tspan>`
+      spans += cellRow(text, ox + lead * cw, r1(oy + (y + 1) * ch), cw)
     })
     out += `<text fill="${color}">${spans}</text>`
   }
@@ -498,7 +510,7 @@ function waveRows(top: number, bottom: number, period: number, k1: number, k2: n
       const v = Math.sin((TAU * k1 * c) / period + r * 0.9 + shift) + 0.6 * Math.sin((TAU * k2 * c) / period + r * 1.7)
       row += v > 1.2 ? '~' : v > 0.75 ? '-' : ' '
     }
-    spans += `<tspan x="0" y="${(r + 1) * CH}" fill-opacity="${r2(0.25 + 0.45 * depth)}"${fit(row, CW)}>${row}</tspan>`
+    spans += cellRow(row, 0, (r + 1) * CH, CW, ` fill-opacity="${r2(0.25 + 0.45 * depth)}"`)
   }
   return `<text fill="#f2fffd">${spans}</text>`
 }
@@ -1966,7 +1978,7 @@ function honu(o: BuildOptions): string {
         row += val > 1.5 ? (val > 1.85 ? '~' : val > 1.7 ? '-' : '·') : ' '
       }
       const text = row.replace(/\s+$/, '')
-      if (text) spans += `<tspan x="0" y="${(j + 1) * HCH}"${fit(text, HCW)}>${text}</tspan>`
+      if (text) spans += cellRow(text, 0, (j + 1) * HCH, HCW)
     }
     body +=
       `<g class="a" style="${anim(dir, secs, o.speed, 0)}" opacity="${i ? 0.35 : 0.5}">` +
