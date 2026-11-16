@@ -1118,10 +1118,10 @@ export const register: Register = (on, options) => {
     }
     const { Svg } = $.ui.resolve(e)
 
-    // Drawn in an interactive frame: as a plain image the app froze the scene
-    // whenever the session sat idle. The scene is light enough now (0.35.0)
-    // that the frame keeps up, so this tests whether it escapes that pause.
-    return <Svg source={source} alt={SCENES.find(w => w.id === id)!.alt} isInteractive />
+    // Drawn as a plain image: nothing behind the chat needs hover, and an image
+    // is the lighter of the two. The app pauses the wallpaper while the session
+    // sits idle either way (an interactive frame was tried in 0.36.0).
+    return <Svg source={source} alt={SCENES.find(w => w.id === id)!.alt} />
   })
 
   // ── Blast-radius guard ─────────────────────────────────────────────
