@@ -1990,23 +1990,28 @@ function honu(o: BuildOptions): string {
   body += `<g class="h">${twinkles(glints, '#ffffff', 7, 3, o.speed, rnd)}</g>`
 
   // Reef in the corners, muted by the water above it.
-  const reef: Ell[] = []
+  // Each reef and the whale fade as one layer (style opacity, which
+  // flattenOpacity leaves alone) so their overlapping shapes don't show
+  // through each other; each layer is only as big as what it holds.
+  let reefSvg = ''
   const blob = (x: number, y: number, r: number, c1: string, c2: string, n: number) => {
+    const reef: Ell[] = []
     const br = rng(x * 7 + y)
     for (let k = 0; k < n; k++) {
       const a = br() * TAU
       const d = br() * r * 0.7
       reef.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d * 0.9, rx: r * (0.35 + 0.3 * br()), ry: r * (0.3 + 0.3 * br()), rot: a, c: k % 2 ? c1 : c2 })
     }
+    reefSvg += `<g style="opacity:.45">${honuSprite(reef, 1, 3)}</g>`
   }
   blob(140, 1600, 110, '#d98a6a', '#c46a5a', 10)
   blob(1800, 220, 100, '#d8b86a', '#c49c4c', 9)
   blob(80, 380, 80, '#c9a0d8', '#e2a0b8', 7)
   blob(1700, 1650, 110, '#d6b870', '#e8907a', 10)
-  body += `<g class="h" opacity=".45">${honuSprite(reef, 1, 3)}</g>`
+  body += `<g class="h">${reefSvg}</g>`
 
   // The whale swims deep, faded into the water.
-  body += `<g class="h" opacity=".35">${along(route(P.whale), HT, o.speed, honuSprite(whaleShapes(), 1, 5))}</g>`
+  body += `<g class="h">${along(route(P.whale), HT, o.speed, `<g style="opacity:.35">${honuSprite(whaleShapes(), 1, 5)}</g>`)}</g>`
 
   const ss = (shapes: Ell[], scale: number, seed: number) => honuSprite(shapes, scale, seed)
   body += `<g class="h">`
@@ -2077,15 +2082,125 @@ type BuildOptions = SceneOptions & { veilColor: string }
 
 const BUILDERS: Record<SceneId, (o: BuildOptions) => string> = { waves, hills, forest, lake, galaxy, planets, islands, castle, summer, starry, pyramids, lanterns, bokeh, glow, honu, clouds, koi, jelly, boats, fireflies, moon, rain, snow, aurora, sakura }
 
+const num = (v: string | undefined) => (v === undefined ? 1 : Number(v))
+const attr = (attrs: string, name: string) => attrs.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]
+const setAttr = (attrs: string, name: string, v: number) => {
+  const val = String(Math.round(v * 1000) / 1000)
+  const re = new RegExp(`\\s${name}="[^"]*"`)
+  return re.test(attrs) ? attrs.replace(re, ` ${name}="${val}"`) : `${attrs} ${name}="${val}"`
+}
+
+/**
+ * Moves every static `opacity` attribute down into `fill-opacity` and
+ * `stroke-opacity`. A group with `opacity` is drawn into a layer of its own and
+ * then blended, and an animated image redraws every layer on every frame: a
+ * few full-window groups took a frame from about 10 ms to 50 ms at Retina
+ * size. Alpha on each shape costs nothing extra; where shapes inside one group
+ * overlap they now show through each other a little, which these scenes bear.
+ */
+export function flattenOpacity(svg: string): string {
+  // For each open element: the opacity product above it (m), and the fill- and
+  // stroke-opacity its children inherit as the scene wrote them (f, s).
+  type Ctx = { m: number; f: number; s: number }
+  const stack: Ctx[] = [{ m: 1, f: 1, s: 1 }]
+  return svg.replace(/<(\/?)([a-zA-Z][\w:-]*)([^>]*?)(\/?)>/g, (whole, close: string, tag: string, attrs: string, self: string) => {
+    if (close) {
+      stack.pop()
+      return whole
+    }
+    const up = stack[stack.length - 1]!
+    // Paint servers and definitions are drawn where they are used, not here.
+    if (/^(svg|defs|style|linearGradient|radialGradient|stop|pattern|filter|clipPath|mask|symbol|fe\w+)$/.test(tag)) {
+      if (!self) stack.push(tag === 'svg' ? up : { m: 1, f: 1, s: 1 })
+      return whole
+    }
+    const own = attr(attrs, 'opacity')
+    const ownF = attr(attrs, 'fill-opacity')
+    const ownS = attr(attrs, 'stroke-opacity')
+    const ctx: Ctx = {
+      m: up.m * num(own),
+      f: ownF === undefined ? up.f : num(ownF),
+      s: ownS === undefined ? up.s : num(ownS),
+    }
+    let a = attrs
+    // Write a value only where the inherited one would now be wrong: where this
+    // element has its own opacity, or its own fill- or stroke-opacity under one.
+    if (own !== undefined || (ownF !== undefined && ctx.m !== 1)) a = setAttr(a, 'fill-opacity', ctx.f * ctx.m)
+    if (own !== undefined || (ownS !== undefined && ctx.m !== 1)) a = setAttr(a, 'stroke-opacity', ctx.s * ctx.m)
+    if (own !== undefined) a = a.replace(/\sopacity="[^"]*"/, '')
+    if (!self) stack.push(ctx)
+    return `<${tag}${a}${self}>`
+  })
+}
+
+/**
+ * Makes fades run on `fill-opacity` and `stroke-opacity` instead of `opacity`,
+ * for the same reason as flattenOpacity: a twinkling group of stars spread
+ * over the window is a full-window layer on every frame while its opacity
+ * moves. Each keyframes block that moves `opacity` gets a twin, `<name>_f`. An
+ * element switches to the twin only where nothing at or under it sets its own
+ * fill- or stroke-opacity, which would cut it off from the inherited fade.
+ */
+export function fadeWithoutLayers(svg: string): string {
+  const css = [...svg.matchAll(/<style>([\s\S]*?)<\/style>/g)].map(m => m[1]).join('')
+  const twins = new Map<string, string>()
+  for (const m of css.matchAll(/@keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^}]*\})*)\s*\}/g)) {
+    if (!/(?<![\w-])opacity\s*:/.test(m[2]!)) continue
+    twins.set(m[1]!, `@keyframes ${m[1]}_f{${m[2]!.replace(/(?<![\w-])opacity\s*:\s*([\d.]+)/g, 'fill-opacity:$1;stroke-opacity:$1')}}`)
+  }
+  if (twins.size === 0) return svg
+
+  type Tok = { at: number; len: number; close: boolean; self: boolean; tag: string; attrs: string }
+  const toks: Tok[] = []
+  for (const m of svg.matchAll(/<(\/?)([a-zA-Z][\w:-]*)([^>]*?)(\/?)>/g)) {
+    toks.push({ at: m.index!, len: m[0].length, close: !!m[1], self: !!m[4], tag: m[2]!, attrs: m[3]! })
+  }
+  // Whether the element itself, or anything inside it, sets its own alpha.
+  const own = toks.map(t => !t.close && /\s(fill|stroke)-opacity="/.test(t.attrs))
+  const below = toks.map(() => false)
+  const open: number[] = []
+  toks.forEach((t, k) => {
+    if (t.close) {
+      const o = open.pop()!
+      const p = open[open.length - 1]
+      if (p !== undefined && (below[o] || own[o])) below[p] = true
+    } else if (t.self) {
+      const p = open[open.length - 1]
+      if (p !== undefined && own[k]) below[p] = true
+    } else open.push(k)
+  })
+
+  const used = new Set<string>()
+  let out = ''
+  let last = 0
+  toks.forEach((t, k) => {
+    if (t.close || own[k] || below[k]) return
+    const style = t.attrs.match(/\sstyle="([^"]*)"/)?.[1]
+    if (!style) return
+    const next = style.replace(/(animation(?:-name)?\s*:\s*)([\w-]+)/g, (whole, head: string, name: string) => {
+      if (!twins.has(name)) return whole
+      used.add(name)
+      return `${head}${name}_f`
+    })
+    if (next === style) return
+    const attrs = t.attrs.replace(/\sstyle="[^"]*"/, ` style="${next}"`)
+    out += svg.slice(last, t.at) + `<${t.tag}${attrs}${t.self ? '/' : ''}>`
+    last = t.at + t.len
+  })
+  out += svg.slice(last)
+  const extra = [...used].map(n => twins.get(n)!).join('')
+  return extra ? out.replace('</style>', `${extra}</style>`) : out
+}
+
 /** The scene's SVG document, at most 131072 characters. */
 export function buildScene(id: SceneId, o: SceneOptions): string {
   const dark = SCENES.find(s => s.id === id)!.scheme === 'dark'
-  return BUILDERS[id]({
+  return fadeWithoutLayers(flattenOpacity(BUILDERS[id]({
     speed: Math.min(3, Math.max(0.25, o.speed)),
     veil: Math.min(0.8, Math.max(0, o.veil)),
     // The veil fades toward the page of the scene's own mode, which the scene sets.
     veilColor: dark ? '#0c0c10' : '#fafafc',
-  })
+  })))
 }
 
 // ---------- still grounds ----------

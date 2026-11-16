@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { newRun, runJump, runScore, runStep } from '../hooks/run-game'
 import { recordRun, THEMES, ambient, themeStyle, hasAccessory, petHeatmap, petRangeStats, favoriteHour, layNewEgg, newEggBlock, choosePath, hatchSpecies, PET_SPECIES, dayKey, feedAndAward, patPet, petFeeling, petStamina, workIn, hasSkin, newPetLife, pet, petLifeFrom, petMood, petStats, PET_WIDTH, ringGlow, smoothBar, daysLeft, detectBlast, humanPrompt, shimmer, sweep, tween, typed, levelOf, lineDiff, parseBudget, prRefFrom, rollup, tidySummary } from '../hooks/rules'
-import { SCENE_IDS, buildScene } from '../hooks/wallpaper'
+import { SCENE_IDS, buildScene, fadeWithoutLayers, flattenOpacity } from '../hooks/wallpaper'
 import type { ThemeSetArgs } from 'claude-code'
 import { petSvg } from '../hooks/rules'
 import { PET_ART } from '../hooks/pet-art'
@@ -577,7 +577,22 @@ test('every wallpaper scene is a self-contained SVG under the size limit', async
     expect(svg.startsWith('<svg')).toBe(true)
     expect(svg.length).toBeLessThan(131072)
     expect(/<script|\son\w+=|https?:\/\/(?!www\.w3\.org)/.test(svg)).toBe(false)
+    // No static group opacity: each one is a layer redrawn on every frame.
+    expect(/\sopacity="/.test(svg)).toBe(false)
   }
+})
+
+test('group opacity moves down into fill- and stroke-opacity, multiplied', () => {
+  const out = flattenOpacity('<svg><g opacity=".5"><rect fill-opacity=".5"/><g opacity=".5"><circle/></g><path/></g></svg>')
+  expect(out).toBe('<svg><g fill-opacity="0.5" stroke-opacity="0.5"><rect fill-opacity="0.25"/><g fill-opacity="0.25" stroke-opacity="0.25"><circle/></g><path/></g></svg>')
+})
+
+test('fades move to fill-opacity only where nothing below sets its own', () => {
+  const svg = '<svg><style>@keyframes tw{0%{opacity:0}100%{opacity:1}}</style><g style="animation:tw 2s infinite"><text>*</text></g><g style="animation:tw 2s infinite"><rect fill-opacity=".5"/></g></svg>'
+  const out = fadeWithoutLayers(svg)
+  expect(out).toContain('@keyframes tw_f{0%{fill-opacity:0;stroke-opacity:0}100%{fill-opacity:1;stroke-opacity:1}}')
+  expect(out).toContain('<g style="animation:tw_f 2s infinite"><text>')
+  expect(out).toContain('<g style="animation:tw 2s infinite"><rect')
 })
 
 test('the Wallpaper tab picks a wallpaper, kept for next time, and draws it behind the chat', async ($, on) => {
