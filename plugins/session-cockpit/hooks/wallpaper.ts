@@ -276,7 +276,6 @@ const BASE_CSS = `
 text{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:15px;white-space:pre}
 .a{animation-iteration-count:infinite;animation-timing-function:linear}
 .f{transform-box:fill-box;transform-origin:center}
-@media (prefers-reduced-motion:reduce){*{animation:none!important}}
 `
 
 function doc(d: Doc): string {
