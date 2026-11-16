@@ -1891,26 +1891,43 @@ function plumeriaShapes(s: number): Ell[] {
   return out
 }
 
-/** A closed path through one loop of a parametric curve. */
-function loop(fn: (t: number) => [number, number], steps = 72): string {
-  let d = ''
-  for (let i = 0; i < steps; i++) {
-    const [x, y] = fn((i / steps) * HT)
-    d += `${i ? 'L' : 'M'}${Math.round(x)} ${Math.round(y)}`
+// The desktop app stops SMIL (animateMotion) a few seconds in, while CSS
+// animation keeps running, so motion along a curve is CSS keyframes: the curve
+// sampled into translate + rotate steps, heading along the way it moves.
+type Route = { name: string; frames: string }
+let routeCount = 0
+
+/** Keyframes that carry a sprite once round a closed parametric curve. */
+function loop(fn: (t: number) => [number, number], steps = 72): Route {
+  const pts = Array.from({ length: steps + 1 }, (_, i) => fn((i / steps) * HT))
+  let prev = 0
+  let frames = ''
+  for (let i = 0; i <= steps; i++) {
+    const [x, y] = pts[i]!
+    const [nx, ny] = pts[(i + 1) % steps]!
+    let a = (Math.atan2(ny - y, nx - x) * 180) / Math.PI
+    // Keep the heading continuous so the sprite never spins the long way round.
+    if (i > 0) a = prev + ((((a - prev) % 360) + 540) % 360) - 180
+    prev = a
+    frames += `${r1((i / steps) * 100)}%{transform:translate(${Math.round(x)}px,${Math.round(y)}px) rotate(${Math.round(a)}deg)}`
   }
-  return `${d}Z`
+  const name = `mv${routeCount++}`
+  return { name, frames: `@keyframes ${name}{${frames}}` }
 }
 
-function along(path: string, secs: number, speed: number, inner: string, begin = 0): string {
-  return (
-    `<g><animateMotion path="${path}" dur="${r2(secs / speed)}s" begin="${r2(-begin / speed)}s" repeatCount="indefinite" rotate="auto"/>` +
-    inner +
-    `</g>`
-  )
+function along(route: Route, secs: number, speed: number, inner: string, begin = 0): string {
+  return `<g style="animation:${route.name} ${r2(secs / speed)}s linear ${r2(-begin / speed)}s infinite">${inner}</g>`
 }
 
 function honu(o: BuildOptions): string {
   const rnd = rng(79)
+  routeCount = 0
+  const routes: Route[] = []
+  const route = (fn: (t: number) => [number, number]) => {
+    const r = loop(fn)
+    routes.push(r)
+    return r
+  }
   const P = {
     turtleA: (t: number): [number, number] => [972 + 1080 * Math.cos(HWW * t + 0.3), 860 + 640 * Math.sin(HWW * t + 0.3) + 140 * Math.sin(2 * HWW * t)],
     turtleB: (t: number): [number, number] => [900 + 700 * Math.sin(-HWW * t + 1), 880 - 1080 * Math.cos(-HWW * t + 1)],
@@ -1978,16 +1995,16 @@ function honu(o: BuildOptions): string {
   body += `<g class="h" opacity=".45">${honuSprite(reef, 1, 3)}</g>`
 
   // The whale swims deep, faded into the water.
-  body += `<g class="h" opacity=".35">${along(loop(P.whale), HT, o.speed, honuSprite(whaleShapes(), 1, 5))}</g>`
+  body += `<g class="h" opacity=".35">${along(route(P.whale), HT, o.speed, honuSprite(whaleShapes(), 1, 5))}</g>`
 
   const ss = (shapes: Ell[], scale: number, seed: number) => honuSprite(shapes, scale, seed)
   body += `<g class="h">`
-  body += along(loop(P.manta), HT, o.speed, ss(mantaShapes(), 1.2, 7))
-  body += along(loop(P.dolphin), HT, o.speed, ss(dolphinShapes(), 1.25, 9))
-  body += along(loop(P.dolphin), HT, o.speed, ss(dolphinShapes(), 1.1, 11), 0.5)
-  body += along(loop(P.turtleA), HT, o.speed, ss(turtleShapes(), 1.55, 13))
-  body += along(loop(P.turtleB), HT, o.speed, ss(turtleShapes(), 1.3, 15))
-  body += along(loop(P.turtleC), HT, o.speed, ss(turtleShapes(), 1.1, 17))
+  body += along(route(P.manta), HT, o.speed, ss(mantaShapes(), 1.2, 7))
+  body += along(route(P.dolphin), HT, o.speed, ss(dolphinShapes(), 1.25, 9))
+  body += along(route(P.dolphin), HT, o.speed, ss(dolphinShapes(), 1.1, 11), 0.5)
+  body += along(route(P.turtleA), HT, o.speed, ss(turtleShapes(), 1.55, 13))
+  body += along(route(P.turtleB), HT, o.speed, ss(turtleShapes(), 1.3, 15))
+  body += along(route(P.turtleC), HT, o.speed, ss(turtleShapes(), 1.1, 17))
   const FISH = [
     [0, 0],
     [-120, -70],
@@ -2019,9 +2036,9 @@ function honu(o: BuildOptions): string {
   body += `<g class="h">`
   for (const [kind, p0, y0, s, dir] of FLOWERS) {
     const art = ss(kind === 'h' ? hibiscusShapes(s) : plumeriaShapes(s), 1, Math.round(p0 * 100))
-    body +=
-      `<g><animateMotion path="M-220 ${y0}L${HW + 220} ${y0 + 420}" dur="${r2(HT / o.speed)}s" begin="${r2((-p0 * HT) / o.speed)}s" repeatCount="indefinite"/>` +
-      `<g><animateTransform attributeName="transform" type="rotate" from="0" to="${dir * 360}" dur="${r2(HT / o.speed)}s" repeatCount="indefinite"/>${art}</g></g>`
+    const name = `fl${routes.length}`
+    routes.push({ name, frames: `@keyframes ${name}{from{transform:translate(-220px,${y0}px) rotate(0deg)}to{transform:translate(${HW + 220}px,${y0 + 420}px) rotate(${dir * 360}deg)}}` })
+    body += `<g style="animation:${name} ${r2(HT / o.speed)}s linear ${r2((-p0 * HT) / o.speed)}s infinite">${art}</g>`
   }
   body += `</g>`
 
@@ -2033,7 +2050,7 @@ function honu(o: BuildOptions): string {
     defs:
       `<pattern id="grid" width="${HCW}" height="${HCH}" patternUnits="userSpaceOnUse"><path d="M0 0H${HCW}M0 0V${HCH}" stroke="#fff" stroke-opacity=".07"/></pattern>` +
       `<linearGradient id="ray" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fffff0" stop-opacity="0"/><stop offset=".5" stop-color="#fffff0" stop-opacity=".1"/><stop offset="1" stop-color="#fffff0" stop-opacity="0"/></linearGradient>`,
-    css: `${TWINKLE_CSS}
+    css: `${TWINKLE_CSS}${routes.map(r => r.frames).join("")}
 .h text{font-size:17px;font-weight:600}
 @keyframes band{from{transform:translateX(-${Math.round((HW + HH) * 0.6)}px)}to{transform:translateX(${Math.round((HW + HH) * 0.6)}px)}}
 @keyframes hl{from{transform:translateX(0)}to{transform:translateX(-${HW}px)}}
